@@ -53,12 +53,14 @@ object MusicRepository {
         }
         scope.launch {
             ready.first { it }
-            DownloadStore.items.map { jobs -> jobs.filter { it.state == "Completed" && it.audio }.map { it.id to it.uris } }.distinctUntilChanged().collect {
-                if (_state.value.settings.autoAdd) rescan()
+            DownloadStore.items.map { jobs -> jobs.filter { it.hasImportableAudio() } }.distinctUntilChanged().collect {
+                rescan()
             }
         }
     }
-    fun update(change: (MusicState) -> MusicState) = synchronized(stateLock) {
+    fun update(change: (MusicState) -> MusicState) = changeState(change)
+    private fun localUpdate(change: (MusicState) -> MusicState) = changeState(change)
+    private fun changeState(change: (MusicState) -> MusicState) = synchronized(stateLock) {
         val next = change(_state.value)
         if (next != _state.value) { _state.value = next; saveRequests.trySend(Unit) }
         Unit
@@ -67,18 +69,25 @@ object MusicRepository {
         require(value.speed in listOf(.5f, .75f, 1f, 1.25f, 1.5f, 1.75f, 2f))
         update { it.copy(settings = value) }; MusicPlayback.applySettings()
     }
-    fun favorite(id: String) = update { it.copy(favorites = if (id in it.favorites) it.favorites - id else it.favorites + id) }
-    fun remove(ids: Set<String>) = update { it.copy(tracks = it.tracks.filterNot { track -> track.id in ids }, hidden = it.hidden + ids, favorites = it.favorites - ids,
+    internal fun editLocal(change: (MusicState) -> MusicState) = localUpdate(change)
+    fun favorite(id: String) = localUpdate { it.copy(favorites = if (id in it.favorites) it.favorites - id else it.favorites + id) }
+    fun remove(ids: Set<String>) = localUpdate { it.copy(tracks = it.tracks.filterNot { track -> track.id in ids }, hidden = it.hidden + ids, favorites = it.favorites - ids,
         playlists = it.playlists.map { p -> p.copy(tracks = p.tracks.filterNot { id -> id in ids }) }) }
     fun playlist(name: String, ids: List<String>, id: String? = null) {
         require(name.isNotBlank()) { "Enter a playlist name" }
-        update { state ->
-            val p = LocalPlaylist(id = id ?: UUID.randomUUID().toString(), name = name.trim(), tracks = ids)
+        localUpdate { state ->
+            val p = state.playlists.find { it.id == id }?.copy(name = name.trim(), tracks = ids)
+                ?: LocalPlaylist(id = id ?: UUID.randomUUID().toString(), name = name.trim(), tracks = ids)
             state.copy(playlists = state.playlists.filterNot { it.id == p.id } + p)
         }
     }
-    fun deletePlaylist(id: String) = update { it.copy(playlists = it.playlists.filterNot { p -> p.id == id }) }
-    fun addToPlaylist(id: String, tracks: List<String>) = update { it.copy(playlists = it.playlists.map { p -> if (p.id == id) p.copy(tracks = p.tracks + tracks.filterNot { t -> t in p.tracks }) else p }) }
+    fun restoreLibrary(restored: MusicState) = localUpdate { current ->
+        current.copy(tracks = MusicRules.merge(current.tracks, restored.tracks),
+            playlists = current.playlists.filterNot { p -> restored.playlists.any { it.id == p.id } } + restored.playlists,
+            favorites = current.favorites + restored.favorites)
+    }
+    fun deletePlaylist(id: String) = localUpdate { it.copy(playlists = it.playlists.filterNot { p -> p.id == id }) }
+    fun addToPlaylist(id: String, tracks: List<String>) = localUpdate { it.copy(playlists = it.playlists.map { p -> if (p.id == id) p.copy(tracks = p.tracks + tracks.filterNot { t -> t in p.tracks }) else p }) }
     fun played(id: String) = update { val previous = it.history[id] ?: PlayRecord(); it.copy(history = it.history + (id to PlayRecord(previous.count + 1, System.currentTimeMillis()))) }
     fun exists(uri: String): Boolean = runCatching { context.contentResolver.openAssetFileDescriptor(Uri.parse(uri), "r")?.use { true } ?: false }.getOrDefault(false)
     private fun metadata(uri: String, downloadId: String? = null, fallback: String = ""): LocalTrack {
@@ -105,33 +114,36 @@ object MusicRepository {
     suspend fun downloadedTracks(id: String): List<String> = withContext(Dispatchers.IO) {
         ready.first { it }
         val job = DownloadStore.items.value.find { it.id == id && it.audio && it.state == "Completed" } ?: error("Audio download is not complete")
-        val tracks = job.uris.mapIndexedNotNull { i, uri -> runCatching { metadata(uri, job.id, job.exportedNames.getOrNull(i).orEmpty()) }.getOrNull() }
+        val tracks = job.orderedAudioUris().mapNotNull { uri -> runCatching { metadata(uri, job.id, job.exportedNames.getOrNull(job.uris.indexOf(uri)).orEmpty()) }.getOrNull() }
         update { it.copy(tracks = MusicRules.merge(it.tracks, tracks), hidden = it.hidden - tracks.map { t -> t.id }.toSet()) }
         tracks.map { it.id }
     }
-    suspend fun rescan(forceDownloads: Boolean = false): Unit = withContext(Dispatchers.IO) { scanLock.withLock {
+    suspend fun rescan(forceDownloads: Boolean = false, downloads: List<DownloadItem> = DownloadStore.items.value): Unit = withContext(Dispatchers.IO) { scanLock.withLock {
         ready.first { it }
         scanning.value = true
         try {
             val old = _state.value
             val incoming = mutableListOf<LocalTrack>()
+            val downloadedPlaylists = mutableListOf<Pair<DownloadItem, List<String>>>()
             val byUri = old.tracks.associateBy { it.uri }
-            val completed = DownloadStore.items.value.filter { it.state == "Completed" && it.audio }
-            if (old.settings.autoAdd || forceDownloads) for (job in completed) {
+            val completed = downloads.filter { it.hasImportableAudio() }
+            for (job in completed) {
+                if (!old.settings.autoAdd && !forceDownloads && job.createLibraryPlaylist != true) continue
                 val ids = mutableListOf<String>()
-                for ((i, uri) in job.uris.withIndex()) {
+                for (uri in job.orderedAudioUris()) {
+                    val i = job.uris.indexOf(uri)
                     val cached = byUri[uri]
                     val track = runCatching { if (!forceDownloads && cached != null && exists(uri)) cached.copy(available = true) else metadata(uri, job.id, job.exportedNames.getOrNull(i).orEmpty()) }.getOrNull() ?: continue
                     ids.add(track.id)
                     if (track.id !in old.hidden) incoming.add(track)
                 }
-                if (old.settings.downloadPlaylists && job.media.playlist && ids.isNotEmpty()) {
-                    val playlistId = "download-${job.id}"
-                    update { state -> if (state.playlists.any { it.id == playlistId }) state else state.copy(playlists = state.playlists + LocalPlaylist(playlistId, job.media.title, ids, job.id)) }
-                }
+                downloadedPlaylists.add(job to ids)
             }
             val checked = old.tracks.associate { it.id to exists(it.uri) }
-            update { latest -> latest.copy(tracks = MusicRules.merge(latest.tracks.map { it.copy(available = checked[it.id] ?: it.available) }, incoming.filterNot { it.id in latest.hidden })) }
+            update { latest ->
+                val merged = latest.copy(tracks = MusicRules.merge(latest.tracks.map { it.copy(available = checked[it.id] ?: it.available) }, incoming.filterNot { it.id in latest.hidden }))
+                downloadedPlaylists.fold(merged) { state, (job, ids) -> state.withDownloadPlaylist(job, ids.filterNot { it in state.hidden }) }
+            }
         } catch (e: Exception) { message.value = "Library scan failed: ${e.message}" }
         finally { scanning.value = false }
     } }
@@ -187,7 +199,7 @@ object MusicRepository {
                 track.copy(folder = "$name / ${file.parentFile?.relativeTo(destination)?.path.orEmpty()}", lyrics = lyrics?.inputStream()?.use { String(it.readBytesWithLimit(1024 * 1024), Charsets.UTF_8) }.orEmpty())
             }
             require(tracks.isNotEmpty()) { "No supported audio files found" }
-            update { it.copy(tracks = MusicRules.merge(it.tracks, tracks), playlists = it.playlists + LocalPlaylist(name = name, tracks = tracks.map { t -> t.id })) }
+            localUpdate { it.copy(tracks = MusicRules.merge(it.tracks, tracks), playlists = it.playlists + LocalPlaylist(name = name, tracks = tracks.map { t -> t.id })) }
         } catch (e: Exception) { destination.deleteRecursively(); throw e }
     } }
     fun clearArtwork() { scope.launch { File(root, "artwork").deleteRecursively(); update { it.copy(tracks = it.tracks.map { t -> t.copy(artwork = "") }) } } }

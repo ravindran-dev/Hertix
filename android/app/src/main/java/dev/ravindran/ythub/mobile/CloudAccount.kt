@@ -60,7 +60,7 @@ object CloudAccount {
                     session = restore()
                     if (session == null) mutable.value = AccountState("Signed out")
                     else validate()
-                } catch (_: Exception) { mutable.value = AccountState("Session expired", message = "Secure session could not be restored. Sign in again.") }
+                } catch (_: Exception) { session = null; mutable.value = AccountState("Session expired", message = "Secure session could not be restored. Sign in again.") }
             }
         }
         scope.launch { while (isActive) { delay(45_000); if (session != null) runCatching { token() } } }
@@ -90,11 +90,13 @@ object CloudAccount {
         if ((saved.get("expires_at")?.asLong ?: 0) > System.currentTimeMillis()/1000 + 90) return
         val previous = mutable.value
         mutable.value = previous.copy(status = "Refreshing session")
-        val next = request("/auth/v1/token?grant_type=refresh_token", "POST", json("refresh_token" to saved.get("refresh_token").asString))
-        next.addProperty("expires_at", System.currentTimeMillis()/1000 + next.get("expires_in").asLong)
-        next.addProperty("validated", saved.get("validated")?.asBoolean == true)
-        session = next; save()
-        mutable.value = previous
+        try {
+            val next = request("/auth/v1/token?grant_type=refresh_token", "POST", json("refresh_token" to saved.get("refresh_token").asString))
+            next.addProperty("expires_at", System.currentTimeMillis()/1000 + next.get("expires_in").asLong)
+            next.addProperty("validated", saved.get("validated")?.asBoolean == true)
+            session = next; save()
+        } finally { mutable.value = previous }
+
     }
     suspend fun token(expectedOwner: String? = null): String = withContext(Dispatchers.IO) { mutex.withLock {
         if(expectedOwner != null) check(session?.getAsJsonObject("user")?.get("id")?.asString == expectedOwner) { "Account changed" }
@@ -105,12 +107,14 @@ object CloudAccount {
         session?.get("access_token")?.asString ?: error("Sign in first")
     } }
     suspend fun signIn(email: String, password: String) = withContext(Dispatchers.IO) { mutex.withLock {
-        mutable.value = AccountState("Signing in")
+        val previousState = mutable.value
+        val previousSession = session
+        mutable.value = previousState.copy(status = "Signing in")
         try {
             val result = request("/auth/v1/token?grant_type=password", "POST", json("email" to email.trim(), "password" to password))
             result.addProperty("expires_at", System.currentTimeMillis()/1000 + result.get("expires_in").asLong)
             session = result; validate()
-        } catch (_: Exception) { mutable.value = AccountState("Signed out"); error("Unable to sign in. Check your credentials and email verification.") }
+        } catch (_: Exception) { session = previousSession; mutable.value = previousState; error("Unable to sign in. Check your credentials and email verification.") }
     } }
     suspend fun signUp(email: String, password: String, displayName: String) = withContext(Dispatchers.IO) {
         require(password.length >= 12) { "Use at least 12 characters" }
@@ -120,7 +124,11 @@ object CloudAccount {
     }
     suspend fun sendCode(email: String, recovery: Boolean) = withContext(Dispatchers.IO) {
         try { request(if(recovery) "/auth/v1/recover" else "/auth/v1/resend", "POST", json("email" to email.trim(), "type" to "signup")) }
-        catch (_: CloudHttpException) { /* Deliberately identical response for unknown accounts. */ }
+        catch (e: CloudHttpException) {
+            // Keep unknown-account responses identical, but do not claim a code was sent on service failure.
+            if (e.status == 429 || e.status >= 500) error("Email could not be sent right now. Please try again later.")
+            if (e.status !in listOf(400, 422)) throw e
+        }
         Unit
     }
     suspend fun verify(email: String, code: String, recovery: Boolean) = withContext(Dispatchers.IO) { mutex.withLock {
@@ -132,13 +140,19 @@ object CloudAccount {
     } }
     suspend fun password(value: String) {
         require(value.length >= 12) { "Use at least 12 characters" }
-        val result = request("/auth/v1/user", "PUT", json("password" to value), token())
-        mutex.withLock { session?.add("user", result); save(); publish(result,"Authenticated") }
+        val actor = state.value.userId ?: error("Sign in first")
+        val result = request("/auth/v1/user", "PUT", json("password" to value), token(actor))
+        mutex.withLock { check(session?.getAsJsonObject("user")?.get("id")?.asString == actor) { "Account changed" }; session?.add("user", result); save(); publish(result,"Authenticated") }
     }
     suspend fun forgetDeletedAccount() { mutex.withLock { session=null;save();mutable.value=AccountState("Signed out") } }
     suspend fun signOut(others: Boolean = false) {
-        request("/auth/v1/logout?scope=${if(others) "others" else "local"}", "POST", null, token())
-        if (!others) mutex.withLock { session = null; save(); mutable.value = AccountState("Signed out") }
+        val actor = state.value.userId ?: error("Sign in first")
+        val access = token(actor)
+        mutex.withLock {
+            check(session?.getAsJsonObject("user")?.get("id")?.asString == actor) { "Account changed" }
+            request("/auth/v1/logout?scope=${if(others) "others" else "local"}", "POST", null, access)
+            if (!others) { session = null; save(); mutable.value = AccountState("Signed out") }
+        }
     }
     suspend fun api(path: String, method: String = "GET", body: JsonObject? = null, expectedOwner: String? = null): com.google.gson.JsonElement = raw(path, method, body, token(expectedOwner))
     private suspend fun request(path: String, method: String, body: JsonObject?, token: String? = null): JsonObject = raw(path, method, body, token).let { if(it.isJsonObject) it.asJsonObject else JsonObject() }

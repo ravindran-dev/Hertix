@@ -12,6 +12,26 @@ class MusicPersistenceTest {
         assertEquals("Grid", state.settings.libraryLayout); assertTrue(state.settings.background)
         assertEquals(listOf("b", "a"), state.playlists.single().tracks)
     }
+    @Test fun signedInPlaylistEditsSurviveWithoutCopyingRemotePlaylists() {
+        val local = MusicState(playlists = listOf(LocalPlaylist("old", "Old")))
+        val before = local.copy(playlists = local.playlists + LocalPlaylist("remote", "Remote"))
+        val after = before.copy(playlists = before.playlists + LocalPlaylist("bgm", "bgm"))
+        val saved = MusicPersistence.mergeLocalEdits(local, before, after)
+        assertEquals(listOf("old", "bgm"), MusicPersistence.decode(com.google.gson.Gson().toJson(saved)).playlists.map { it.id })
+        val deleted = MusicPersistence.mergeLocalEdits(saved, after, after.copy(playlists = before.playlists))
+        assertEquals(listOf("old"), deleted.playlists.map { it.id })
+    }
+    @Test fun localFavoritesRetainExplicitEditsOnly() {
+        val local = MusicState(favorites = setOf("local"))
+        val before = local.copy(favorites = setOf("local", "remote"))
+        val after = before.copy(favorites = setOf("remote", "new"))
+        assertEquals(setOf("new"), MusicPersistence.mergeLocalEdits(local, before, after).favorites)
+    }
+    @Test fun rejectsMalformedPlaylistBackups() {
+        listOf("""{"playlists":[{"id":"p","name":""}]}""",
+            """{"playlists":[{"id":"p","name":"One"},{"id":"p","name":"Two"}]}""")
+            .forEach { assertTrue(runCatching { MusicPersistence.decode(it) }.isFailure) }
+    }
     @Test fun rejectsFutureCorruptAndNullData() {
         listOf("{", """{"version":99}""", """{"tracks":null}""").forEach { assertTrue(runCatching { MusicPersistence.decode(it) }.isFailure) }
     }

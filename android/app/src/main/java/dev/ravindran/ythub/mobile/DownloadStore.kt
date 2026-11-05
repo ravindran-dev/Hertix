@@ -27,7 +27,7 @@ import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
 class YTHubApplication : Application() {
-    override fun onCreate() { super.onCreate(); DownloadStore.init(this); MusicRepository.init(this); MusicPlayback.init(this); CloudAccount.init(this) }
+    override fun onCreate() { super.onCreate(); DownloadStore.init(this); MusicRepository.init(this); MusicPlayback.init(this); CloudAccount.init(this); CloudBackupPolicy.init(this) }
 }
 
 object DownloadStore {
@@ -133,7 +133,7 @@ object DownloadStore {
         check(ready) { _engine.value }
         if (synchronized(lock) { active.isEmpty() && !preparingQueue }) refreshEngineIfDue()
         val request = request(url, prefs.value).addOption("--dump-single-json").addOption("--skip-download")
-        if (playlist) request.addOption("--flat-playlist").addOption("--playlist-end", 500) else request.addOption("--no-playlist")
+        if (playlist) request.addOption("--flat-playlist") else request.addOption("--no-playlist")
         val result = engineMutex.withLock { YoutubeDL.getInstance().execute(request, "analysis-${UUID.randomUUID()}") }
         parseMedia(JSONObject(result.out.trim()), url)
     }
@@ -153,10 +153,11 @@ object DownloadStore {
             json.optLong("duration", 0), json.optLong("view_count", 0), json.optString("upload_date"), entries != null, children, heights,
             if (entries != null) json.optInt("playlist_count", children.size).coerceAtLeast(children.size) else 1)
     }
-    fun enqueue(media: MediaInfo, audio: Boolean, quality: String): String {
+    fun enqueue(media: MediaInfo, audio: Boolean, quality: String, createLibraryPlaylist: Boolean? = null, libraryPlaylistName: String? = null): String {
+        require(createLibraryPlaylist != true || (audio && media.playlist && !libraryPlaylistName.isNullOrBlank())) { "Enter a name for the audio playlist" }
         check(ready) { _engine.value }
         val id = UUID.randomUUID().toString()
-        val item = DownloadItem(id, media, audio, quality, state = if (prefs.value.autoStart) "Queued" else "Paused", options = prefs.value)
+        val item = DownloadItem(id, media, audio, quality, state = if (prefs.value.autoStart) "Queued" else "Paused", options = prefs.value, createLibraryPlaylist = createLibraryPlaylist, libraryPlaylistName = libraryPlaylistName?.trim())
         synchronized(lock) {
             require(_items.value.count { !it.terminal } < 100) { "Queue is full. Complete or remove an existing task first." }
             _items.value = listOf(item) + _items.value
@@ -283,6 +284,7 @@ object DownloadStore {
             var completed = 0
             val sources = if (item.media.playlist) item.media.entries else listOf(item.media)
             check(sources.isNotEmpty()) { "This playlist has no downloadable items." }
+            val sourceFiles = mutableListOf<String>()
             for ((index, media) in sources.withIndex()) {
                 checkRunning(item.id)
                 check(directory.usableSpace > 256L * 1024 * 1024) { "Storage almost full. Free at least 256 MB, then retry." }
@@ -298,9 +300,10 @@ object DownloadStore {
                     request.addOption("-f", "bestvideo$limit[ext=mp4]+bestaudio[ext=m4a]/best$limit[ext=mp4]/best$limit")
                         .addOption("--merge-output-format", "mp4")
                 }
+                if (item.audio && item.media.playlist) request.addOption("--print", "after_move:__YTHUB_FILE__%(filepath)s").addOption("--no-simulate").addOption("--no-quiet")
                 var lastUpdate = 0L
                 try {
-                    YoutubeDL.getInstance().execute(request, item.id) { progress, eta, line ->
+                    val result = YoutubeDL.getInstance().execute(request, item.id) { progress, eta, line ->
                         val time = System.currentTimeMillis()
                         if (time - lastUpdate > 250) {
                             lastUpdate = time
@@ -311,6 +314,13 @@ object DownloadStore {
                                     eta = eta, line = if (sources.size > 1) "${index + 1}/${sources.size} · ${line.takeLast(180)}" else line.takeLast(180))
                             }
                         }
+                    }
+                    if (item.audio && item.media.playlist) {
+                        val path = result.out.lineSequence().lastOrNull { it.startsWith("__YTHUB_FILE__") }?.removePrefix("__YTHUB_FILE__")?.trim()
+                        val saved = path?.let { File(it).canonicalFile }
+                        check(saved != null && saved.parentFile == directory.canonicalFile && saved.isFile) { "Could not identify the downloaded song. Retry to finish importing the playlist." }
+                        sourceFiles.add(saved.name)
+                        change(item.id) { it.copy(playlistFileOrder = sourceFiles.toList()) }
                     }
                     completed++
                 } catch (e: Exception) {
@@ -344,7 +354,7 @@ object DownloadStore {
             change(item.id) { if (it.state in listOf("Paused", "Cancelled")) it else it.copy(state = "Exporting", line = "Saving to ${item.options.folderName}…") }
             val uris = current(item.id).uris.toMutableList()
             val exportedNames = current(item.id).exportedNames.toMutableList()
-            if (!item.media.playlist || item.options.keepFolder || !item.options.autoZip) {
+            if (item.exportsIndividualFiles(MusicRepository.state.value.settings.downloadPlaylists)) {
                 for (file in files.filter { it.name !in exportedNames }) {
                     checkRunning(item.id)
                     uris.add(export(file, if (item.audio) "audio/mpeg" else "video/mp4", item))
@@ -357,14 +367,14 @@ object DownloadStore {
                 uris = uris.toList(), zipUri = zipUri.ifBlank { it.zipUri }, mime = if (item.audio) "audio/mpeg" else "video/mp4",
                 line = "$completed downloaded${if (failures > 0) " · $failures failed" else " · saved to ${item.options.folderName}"}",
                 error = if (failures > 0) "$failures playlist items failed. Retry to attempt the playlist again; existing local files will be reused." else "") }
-            if (failures == 0) { directory.deleteRecursively(); DownloadService.notifyFinished(context, current(item.id));
-                if (item.audio && (MusicRepository.state.value.settings.autoAdd || MusicRepository.state.value.settings.autoPlayDownload)) {
+            if (failures == 0) { directory.deleteRecursively(); DownloadService.notifyFinished(context, current(item.id)) }
+            if (item.audio && (MusicRepository.state.value.settings.autoAdd || MusicRepository.state.value.settings.autoPlayDownload || item.createsLibraryPlaylist(MusicRepository.state.value.settings.downloadPlaylists))) {
                     MusicRepository.rescan(MusicRepository.state.value.settings.autoPlayDownload)
                     if (MusicRepository.state.value.settings.autoPlayDownload) withContext(Dispatchers.Main) {
-                        val ids = MusicRepository.state.value.tracks.filter { it.downloadId == item.id }.map { it.id }
+                        val ids = current(item.id).orderedAudioUris().mapNotNull { uri -> MusicRepository.state.value.tracks.find { it.uri == uri }?.id }
                         if (ids.isNotEmpty()) MusicPlayback.play(ids)
                     }
-                } }
+            }
         } catch (e: Exception) {
             change(item.id) { if (it.state in listOf("Paused", "Cancelled")) it else it.copy(state = "Failed", error = e.message?.takeLast(1600) ?: "Download failed", line = "Tap retry to continue") }
         }

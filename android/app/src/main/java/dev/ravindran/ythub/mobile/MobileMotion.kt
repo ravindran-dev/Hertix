@@ -18,19 +18,11 @@ internal object MobileMotion {
     const val navigation = 220
     fun navigation(from: String, to: String, back: Boolean = false): ContentTransform {
         val tabs = listOf("Home", "Downloads", "Library", "Settings")
-        val enter = fadeIn(tween(standard))
-        val exit = fadeOut(tween(quick))
         return when {
-            to == "Player" -> (fadeIn(tween(180)) + slideInVertically(tween(220, easing = FastOutSlowInEasing)) { it / 3 }) togetherWith fadeOut(tween(120))
-            from == "Player" -> fadeIn(tween(180)) togetherWith
-                (fadeOut(tween(180)) + slideOutVertically(tween(220, easing = FastOutSlowInEasing)) { it / 3 })
-            back -> (fadeIn(tween(160)) + slideInHorizontally(tween(200, easing = FastOutSlowInEasing)) { -it / 24 }) togetherWith fadeOut(tween(100))
-            from in tabs && to in tabs -> {
-                val direction = if (tabs.indexOf(to) > tabs.indexOf(from)) 1 else -1
-                (enter + slideInHorizontally(tween(navigation, easing = FastOutSlowInEasing)) { direction * it / 16 }) togetherWith
-                    (exit + slideOutHorizontally(tween(standard)) { -direction * it / 24 })
-            }
-            else -> (enter + slideInHorizontally(tween(standard)) { it / 20 }) togetherWith exit
+            from in tabs && to in tabs -> EnterTransition.None togetherWith ExitTransition.None
+            to=="Player" -> (fadeIn(tween(140))+slideInVertically(tween(160)) {it/12}) togetherWith fadeOut(tween(90))
+            from=="Player" -> fadeIn(tween(110)) togetherWith (fadeOut(tween(110))+slideOutVertically(tween(150)){it/12})
+            else -> fadeIn(tween(100)) togetherWith fadeOut(tween(90))
         }
     }
 }

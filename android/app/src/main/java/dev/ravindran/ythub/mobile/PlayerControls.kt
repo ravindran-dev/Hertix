@@ -88,7 +88,7 @@ import kotlin.math.roundToInt
             if (next != volume) runCatching { audio.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0); volume = next }
                 .onFailure { MusicPlayback.error.value = "Android could not change media volume: ${it.message}" }
         }, valueRange = minimum.toFloat()..maximum.coerceAtLeast(minimum + 1).toFloat(), enabled = !fixed && maximum > minimum,
-            description = "Media volume", modifier = Modifier.weight(1f))
+            description = "Media volume", modifier = Modifier.weight(1f), ink = MaterialTheme.colorScheme.onSurface, showThumb = false)
         Icon(Icons.Rounded.VolumeUp, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = .6f))
     }
     if (fixed) Text("Volume is controlled by the connected device", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .65f))
@@ -111,7 +111,9 @@ import kotlin.math.roundToInt
     description: String,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    onValueChangeFinished: (() -> Unit)? = null
+    onValueChangeFinished: (() -> Unit)? = null,
+    ink: Color = MobileUi.accent,
+    showThumb: Boolean = true
 ) {
     val interaction = remember { MutableInteractionSource() }
     val dragging by interaction.collectIsDraggedAsState()
@@ -124,12 +126,12 @@ import kotlin.math.roundToInt
     val fraction = ((value - valueRange.start) / range).coerceIn(0f, 1f)
     val progress by animateFloatAsState(fraction, if (engaged) snap() else tween(220, easing = LinearOutSlowInEasing), label = "Slider progress")
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
-    val sliderInk = MobileUi.accent
+    val sliderInk = ink
     val remainingInk = MaterialTheme.colorScheme.onSurface
     Slider(value = value.coerceIn(valueRange), onValueChange = onValueChange, valueRange = valueRange,
         onValueChangeFinished = onValueChangeFinished, enabled = enabled, interactionSource = interaction,
         modifier = modifier.heightIn(min = 48.dp).semantics { contentDescription = description },
-        thumb = { Box(Modifier.size(10.dp).offset(y = 4.dp).background(Color.White, CircleShape)) },
+        thumb = { Box(Modifier.size(if(showThumb) 10.dp else 0.dp).background(Color.White, CircleShape)) },
         track = {
             Canvas(Modifier.fillMaxWidth().height(thickness.dp)) {
                 val height = size.height

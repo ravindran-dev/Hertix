@@ -11,7 +11,7 @@ data class LocalTrack(
     val downloadId: String? = null, val added: Long = System.currentTimeMillis(),
     val available: Boolean = true, val lyrics: String = "", val folder: String = ""
 )
-data class LocalPlaylist(val id: String = UUID.randomUUID().toString(), val name: String, val tracks: List<String> = emptyList(), val downloadId: String? = null)
+data class LocalPlaylist(val id: String = UUID.randomUUID().toString(), val name: String, val tracks: List<String> = emptyList(), val downloadId: String? = null, val sourceTracks: List<String>? = null)
 data class PlayRecord(val count: Int = 0, val lastPlayed: Long = 0)
 data class PlayerPreferences(
     val autoAdd: Boolean = true, val autoPlayDownload: Boolean = false, val downloadPlaylists: Boolean = true,

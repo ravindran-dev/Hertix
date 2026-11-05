@@ -24,6 +24,7 @@ data class DownloadItem(
     val uris: List<String> = emptyList(), val mime: String = "", val zipUri: String = "", val error: String = "",
     val options: Preferences = Preferences(), val completedCount: Int = 0, val failedCount: Int = 0,
     val exportedNames: List<String> = emptyList(),
+    val createLibraryPlaylist: Boolean? = null, val libraryPlaylistName: String? = null, val playlistFileOrder: List<String>? = null,
     val cloudRecord: String? = null, val accountId: String? = null, val playWhenReady: Boolean = false, val cloudAttempts: Int = 0, val retryAfter: Long = 0
 ) {
     val terminal: Boolean get() = state in listOf("Completed", "Failed", "Cancelled")

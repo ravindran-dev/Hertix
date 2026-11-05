@@ -23,11 +23,8 @@ object CloudSync {
     private var owner: String? = null
     private var cache = CloudCache()
     private var baseline = MusicState()
-    @Volatile private var guest: MusicState? = null
-    fun localSnapshot(state: MusicState): MusicState {
-        val local=guest ?: return state
-        return state.copy(tracks=state.tracks.filterNot { it.uri.startsWith("cloud://") },playlists=local.playlists,favorites=local.favorites,repeat=local.repeat,shuffle=local.shuffle,settings=state.settings.copy(speed=local.settings.speed))
-    }
+    // Offline data is authoritative and survives sign-out. Online records live in the account cache.
+    fun localSnapshot(state: MusicState): MusicState = state.copy(tracks=state.tracks.filterNot { it.uri.startsWith("cloud://") })
     private var nextTry = 0L
     private var failures = 0
     private val mutable = MutableStateFlow(SyncView())
@@ -49,25 +46,18 @@ object CloudSync {
             MusicRepository.ready.first { it }
             CloudAccount.state.map { it.userId }.distinctUntilChanged().collect { id -> lock.withLock {
                 if(owner != id) {
-                    guest?.let { before -> MusicRepository.update { current -> current.copy(
-                        tracks = current.tracks.filterNot { it.uri.startsWith("cloud://") },
-                        playlists = before.playlists,
-                        favorites = before.favorites,
-                        settings = current.settings.copy(speed=before.settings.speed),repeat=before.repeat,shuffle=before.shuffle) } }
                     owner = id; cache = CloudCache()
                     if(id != null) {
-                        guest = MusicRepository.state.value
                         val target = file()
-                        if(target.baseFile.exists()) cache = gson.fromJson(target.openRead().bufferedReader().use { it.readText() },CloudCache::class.java)
+                        if(target.baseFile.exists() || File(target.baseFile.path+".bak").exists()) cache = gson.fromJson(target.openRead().bufferedReader().use { it.readText() },CloudCache::class.java)
                         cache.queue.forEach { if(it.status == "in-progress") it.status = "pending" }
-                        applyRemote()
-                    } else guest = null
+                        reconcileIdentical()
+                    }
                     baseline = MusicRepository.state.value
                     save(if(cache.enabled) "Waiting to sync" else "Paused")
                 }
             }
                 if(id!=null) DownloadStore.items.value.filter {it.cloudRecord!=null && it.accountId==id && it.state=="Interrupted"}.forEach {runCatching {DownloadStore.resume(it.id)}}
-                synchronize()
             }
         }
         scope.launch {
@@ -81,11 +71,10 @@ object CloudSync {
                 } }
             }
         }
-        scope.launch { while(isActive) { delay(15_000); synchronize() } }
     }
     fun configure(enabled: Boolean = state.value.enabled, playlists: Boolean = state.value.playlists, favorites: Boolean = state.value.favorites, preferences: Boolean = state.value.preferences) { scope.launch { lock.withLock {
         check(owner != null) { "Sign in first" }
-        val first = enabled && !cache.enabled
+        val first = enabled && (!cache.enabled || (playlists && !cache.playlists) || (favorites && !cache.favorites) || (preferences && !cache.preferences))
         cache.enabled = enabled; cache.playlists=playlists;cache.favorites=favorites;cache.preferences=preferences
         if(first) capture(MusicRepository.state.value, true)
         save(if(enabled) "Waiting to sync" else "Paused")
@@ -126,54 +115,42 @@ object CloudSync {
         if(cache.preferences && (initial || current.settings.speed!=baseline.settings.speed || current.repeat!=baseline.repeat || current.shuffle!=baseline.shuffle)) add("playback_preferences",owner!!,JsonObject().apply { addProperty("speed",current.settings.speed);addProperty("repeat_mode",current.repeat);addProperty("shuffle",current.shuffle) })
         baseline = current
     }
-    private fun applyRemote() {
-        val pending = cache.queue.map { it.entity_type to it.entity_id }.toSet() + cache.deferred.keys.map { it.substringBefore(':') to it.substringAfter(':') }
-        fun active(row: JsonObject) = row.get("deleted_at")?.isJsonNull != false
-        MusicRepository.update { current ->
-            val tracks = current.tracks.toMutableList()
-            cache.rows["library_items"].orEmpty().filter(::active).forEach { row ->
-                val cloudId = id("library_items",row)
-                var local = cache.trackMap.entries.find { it.value==cloudId }?.key
-                if(local==null) { local=cloudId;cache.trackMap[local]=cloudId }
-                val index=tracks.indexOfFirst { it.id==local }
-                if(("library_items" to cloudId) !in pending) {
-                    val old=tracks.getOrNull(index)
-                    val track=(old ?: LocalTrack(local,"cloud://$owner/$cloudId",row.get("title").asString,available=false,folder="Cloud library")).copy(title=row.get("title").asString,artist=row.get("artist").asString,album=row.get("album").asString,durationMs=row.get("duration_ms").asLong)
-                    if(index<0) tracks+=track else tracks[index]=track
-                }
-            }
-            val playlists=current.playlists.toMutableList()
-            if(cache.playlists) cache.rows["playlists"].orEmpty().forEach { row ->
-                val cloudId=id("playlists",row)
-                val local=cache.playlistMap.entries.find { it.value==cloudId }?.key ?: cloudId.also { cache.playlistMap[it]=cloudId }
-                if(("playlists" to cloudId) !in pending && cache.queue.none { it.entity_type=="playlist_items" && it.patch.get("playlist_id")?.asString==cloudId }) {
-                    playlists.removeAll { it.id==local }
-                    if(active(row)) playlists+=LocalPlaylist(local,row.get("name").asString,cache.rows["playlist_items"].orEmpty().filter { active(it) && it.get("playlist_id").asString==cloudId }.sortedWith(compareBy<JsonObject> { it.get("position").asDouble }.thenBy { it.get("id").asString }).mapNotNull { item -> cache.trackMap.entries.find { it.value==item.get("library_item_id").asString }?.key })
-                }
-            }
-            val favorites=current.favorites.toMutableSet()
-            if(cache.favorites) cache.rows["favorites"].orEmpty().forEach { row -> val cloudId=id("favorites",row); if(("favorites" to cloudId) !in pending) cache.trackMap.entries.find { it.value==cloudId }?.key?.let { if(row.get("active").asBoolean) favorites.add(it) else favorites.remove(it) } }
-            val pref=cache.rows["playback_preferences"]?.firstOrNull()?.takeIf { cache.preferences && ("playback_preferences" to owner) !in pending }
-            current.copy(tracks=tracks,playlists=playlists,favorites=favorites,settings=if(pref==null) current.settings else current.settings.copy(speed=pref.get("speed").asFloat),repeat=pref?.get("repeat_mode")?.asInt ?: current.repeat,shuffle=pref?.get("shuffle")?.asBoolean ?: current.shuffle)
+    private fun reconcileIdentical() {
+        cache.queue.removeAll { op ->
+            val remote=cache.rows[op.entity_type]?.find { id(op.entity_type,it)==op.entity_id } ?: op.remote
+            if(op.status=="conflict" && remote!=null)op.remote=remote.deepCopy()
+            val restored=SyncConflictRules.currentMembership(op,MusicRepository.state.value,cache.playlistMap,cache.trackMap)
+            val deferred=cache.deferred["${op.entity_type}:${op.entity_id}"]
+            val restoredOrder=SyncConflictRules.sameRestoredOrder(op,MusicRepository.state.value,cache.rows,cache.playlistMap,cache.trackMap)
+            val same=SyncConflictRules.matches(op.patch,remote) || (restored!=null && SyncConflictRules.matches(restored,remote))
+            // A restored offline playlist supersedes queued old edits only when its full membership/order equals cloud.
+            val resolved=restoredOrder || (same && (deferred==null || SyncConflictRules.matches(deferred,remote)))
+            if(resolved)cache.deferred.remove("${op.entity_type}:${op.entity_id}")
+            resolved
         }
-        baseline=MusicRepository.state.value
     }
     suspend fun synchronize(force: Boolean = false) { lock.withLock {
         if(!cache.enabled || owner==null || CloudAccount.state.value.userId!=owner || (!force && System.currentTimeMillis()<nextTry)) return
+        if(!CloudBackupPolicy.permitsMetadata(context)) { save("Backup permission required"); return }
+        if(!CloudBackupPolicy.networkAllowed(context)) { save("Waiting for allowed network"); return }
         try {
+            reconcileIdentical()
             save("Syncing")
             val iterator=cache.queue.iterator()
             while(iterator.hasNext()) {
+                check(CloudBackupPolicy.permitsMetadata(context) && CloudBackupPolicy.networkAllowed(context)) { "Backup paused by permission or network" }
                 val op=iterator.next(); if(op.status=="conflict") continue
                 op.status="in-progress";op.attempt_count++;save("Syncing")
                 val response=CloudAccount.api("/rest/v1/rpc/apply_sync_operation","POST",JsonObject().apply { addProperty("operation_id",op.operation_id);addProperty("entity_type",op.entity_type);addProperty("entity_id",op.entity_id);addProperty("expected_version",op.expected_version);add("patch",op.patch) },owner).asJsonObject
-                if(response.get("status").asString=="conflict") { op.status="conflict";op.remote=response.get("remote")?.takeUnless { it.isJsonNull }?.asJsonObject;op.last_error="Changed on another device" } else if(response.get("status").asString=="applied") iterator.remove() else error("Invalid response")
+                if(response.get("status").asString=="conflict" && SyncConflictRules.matches(op.patch,response.get("remote")?.takeUnless {it.isJsonNull}?.asJsonObject)) iterator.remove()
+                else if(response.get("status").asString=="conflict") { op.status="conflict";op.remote=response.get("remote")?.takeUnless { it.isJsonNull }?.asJsonObject;op.last_error="Changed on another device" } else if(response.get("status").asString=="applied") iterator.remove() else error("Invalid response")
                 save("Syncing")
             }
             val rows=mutableMapOf<String,List<JsonObject>>()
             for(entity in entities) {
                 val result=mutableListOf<JsonObject>();var offset=0
                 while(true) {
+                    check(CloudBackupPolicy.permitsMetadata(context) && CloudBackupPolicy.networkAllowed(context)) { "Backup paused by permission or network" }
                     val key=if(entity=="favorites") "library_item_id" else if(entity=="playback_preferences") "user_id" else "id"
                     val page=CloudAccount.api("/rest/v1/$entity?user_id=eq.$owner&select=*&order=$key&limit=500&offset=$offset",expectedOwner=owner).asJsonArray.map { it.asJsonObject }
                     result.addAll(page);if(page.size<500) break;offset+=500
@@ -187,8 +164,12 @@ object CloudSync {
                 val entity=key.substringBefore(':');val item=key.substringAfter(':')
                 if(cache.queue.none { it.entity_type==entity && it.entity_id==item }) {cache.deferred.remove(key);add(entity,item,patch)}
             }
-            applyRemote();cache.lastSync=Instant.now().toString();failures=0;nextTry=0
-            save(if(cache.queue.isEmpty()) "Synced" else "Waiting to sync")
+            reconcileIdentical();baseline=MusicRepository.state.value;cache.lastSync=Instant.now().toString();failures=0;nextTry=0
+            save(if(cache.queue.any {it.status=="conflict"}) "Needs review" else if(cache.queue.isEmpty()) "Synced" else "Waiting to sync")
+        } catch(e: CancellationException) {
+            cache.queue.filter {it.status=="in-progress"}.forEach {it.status="pending"}
+            runCatching {save("Backup paused")}
+            throw e
         } catch(_: Exception) {
             cache.queue.filter { it.status=="in-progress" }.forEach { it.status="failed";it.last_error="Request failed; retry available" }
             nextTry=System.currentTimeMillis()+(2000L shl (failures++).coerceAtMost(7)).coerceAtMost(300000)
@@ -218,12 +199,67 @@ object CloudSync {
             playlists=current.playlists.map { it.copy(tracks=it.tracks.map { id -> if(id==old) localId else id }) }) }
         baseline=MusicRepository.state.value;save()
     }
+    suspend fun refreshOnline() {
+        val actor=CloudAccount.state.value.userId ?: error("Sign in first")
+        awaitAccount(actor)
+        lock.withLock {
+            check(owner==actor && CloudBackupPolicy.networkAllowed(context)) {"Waiting for the allowed network"}
+            val rows=mutableMapOf<String,List<JsonObject>>()
+            for(entity in entities) {
+                val result=mutableListOf<JsonObject>();var offset=0
+                val key=if(entity=="favorites")"library_item_id" else if(entity=="playback_preferences")"user_id" else "id"
+                while(true) {
+                    check(CloudBackupPolicy.networkAllowed(context)) {"Waiting for the allowed network"}
+                    val page=CloudAccount.api("/rest/v1/$entity?user_id=eq.$actor&select=*&order=$key&limit=500&offset=$offset",expectedOwner=actor).asJsonArray.map {it.asJsonObject}
+                    result+=page;if(page.size<500)break;offset+=500
+                }
+                rows[entity]=result
+            }
+            cache.rows.putAll(rows);reconcileIdentical();save("Online library refreshed")
+        }
+    }
+    suspend fun awaitAccount(id:String) {
+        withTimeout(30_000) {while(!lock.withLock {owner==id})delay(100)}
+    }
+    suspend fun backupNow() {
+        lock.withLock {
+            check(owner != null && owner==CloudAccount.state.value.userId) { "Sign in first" }
+            cache.enabled=true;cache.playlists=true;cache.favorites=true;cache.preferences=true; capture(MusicRepository.state.value,true); save("Waiting to sync")
+        }
+        synchronize(true)
+    }
+    private fun acceptCloudChoice(op: SyncOperation) {
+        val remote=op.remote ?: return
+        MusicRepository.editLocal { current ->
+            when(op.entity_type) {
+                "playlist_items" -> {
+                    val playlist=cache.playlistMap.entries.find {it.value==remote.get("playlist_id")?.asString}?.key
+                    val song=cache.trackMap.entries.find {it.value==remote.get("library_item_id")?.asString}?.key
+                    current.copy(playlists=current.playlists.map { p -> if(p.id!=playlist || song==null) p else {
+                        val songs=p.tracks.filterNot {it==song}.toMutableList()
+                        if(remote.get("deleted_at")?.isJsonNull!=false) songs.add((remote.get("position")?.asInt ?: songs.size).coerceIn(0,songs.size),song)
+                        p.copy(tracks=songs)
+                    } })
+                }
+                "playlists" -> { val local=cache.playlistMap.entries.find {it.value==op.entity_id}?.key
+                    current.copy(playlists=if(remote.get("deleted_at")?.isJsonNull==false)current.playlists.filterNot {it.id==local} else current.playlists.map {if(it.id==local)it.copy(name=remote.get("name").asString) else it}) }
+                "library_items" -> {val local=cache.trackMap.entries.find {it.value==op.entity_id}?.key
+                    current.copy(tracks=current.tracks.map {if(it.id==local)it.copy(title=remote.get("title").asString,artist=remote.get("artist").asString,album=remote.get("album").asString,durationMs=remote.get("duration_ms").asLong) else it})}
+                "favorites" -> {val local=cache.trackMap.entries.find {it.value==op.entity_id}?.key
+                    if(local==null)current else current.copy(favorites=if(remote.get("active").asBoolean)current.favorites+local else current.favorites-local)}
+                "playback_preferences" -> current.copy(settings=current.settings.copy(speed=remote.get("speed").asFloat),repeat=remote.get("repeat_mode").asInt,shuffle=remote.get("shuffle").asBoolean)
+                else -> current
+            }
+        }
+        baseline=MusicRepository.state.value
+    }
     fun retry() { scope.launch { synchronize(true) } }
     fun resolve(operation: String, local: Boolean) { scope.launch { lock.withLock {
         val op=cache.queue.find { it.operation_id==operation } ?: return@withLock
         cache.queue.remove(op)
         val deferred=cache.deferred.remove("${op.entity_type}:${op.entity_id}")
         if(local && deferred!=null) deferred.entrySet().forEach { (key,value) -> op.patch.add(key,value) }
+        if(!local) acceptCloudChoice(op)
         if(local) cache.queue+=op.copy(operation_id=UUID.randomUUID().toString(),expected_version=op.remote?.get("version")?.asLong ?: 0,status="pending",last_error=null)
         save("Waiting to sync")
     };synchronize(true) } }

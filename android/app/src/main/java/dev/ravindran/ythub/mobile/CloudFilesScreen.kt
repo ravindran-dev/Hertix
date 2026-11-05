@@ -69,7 +69,8 @@ fun AccountExportButton() {
             val result=JsonObject()
             for(table in listOf("profiles","user_devices","library_items","playlists","playlist_items","favorites","playback_history","playback_preferences","cloud_objects")) {
                 val rows=JsonArray();var offset=0
-                while(true) {val page=CloudAccount.api("/rest/v1/$table?select=*&limit=500&offset=$offset",expectedOwner=owner).asJsonArray;rows.addAll(page);if(page.size()<500)break;offset+=500};result.add(table,rows)
+                val key=if(table=="favorites") "library_item_id" else if(table=="playback_preferences") "user_id" else "id"
+                while(true) {val page=CloudAccount.api("/rest/v1/$table?select=*&order=$key&limit=500&offset=$offset",expectedOwner=owner).asJsonArray;rows.addAll(page);if(page.size()<500)break;offset+=500};result.add(table,rows)
             }
             context.contentResolver.openOutputStream(uri,"wt")?.bufferedWriter()?.use {it.write(result.toString())} ?: error("File unavailable")
         };message="Account metadata exported. Audio files are not included."} catch(_:Exception){message="Export failed. Retry when connected."}

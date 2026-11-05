@@ -1,0 +1,15 @@
+# Navigation and usability fixes
+
+Search previously selected its tab from the one-shot request flag, which was cleared as soon as the library consumed it. The active search state is now reported separately by the library and retained while typing or dismissing the keyboard. Closing search or opening Library clears the selection appropriately.
+
+Scrolling routes now extend behind the floating dock and receive its measured height as trailing content padding. This removes the straight rectangular viewport cutoff while allowing final items to scroll clear of the controls. Fixed download actions continue to reserve their own clearance. The crowded Downloads tab is labeled Saved with ellipsis for enlarged text; its accessible identity remains Downloads. Saved initially shows completed files, with Active and Failed filters available. Home no longer duplicates the bottom Library/Downloads shortcuts, and the app menu contains Account, Settings and History. Player secondary actions are labeled Lyrics, Queue and More; timer and output remain in More. Less-used cloud transfer settings are collapsed under More download options. Downloader output stays in details rather than leaking into cards.
+
+Backend review: the five tests in tests/cloud-authorization.test.ts pass against the actual SQL migrations under PGlite with a test auth schema. They cover row ownership, cross-account references, anonymous access, compare-and-swap conflicts, idempotency receipts, quotas and storage authorization. This does not establish production Supabase deployment or SMTP health.
+
+Account refresh restores its prior UI status even on request failure. Email resend/recovery no longer claims success after rate limits or server failures. Sign-out locks the session and verifies the initiating owner; password updates verify ownership before modifying cached account state. Download option sliders save at gesture completion instead of writing and rescheduling repeatedly during a drag.
+
+A focused device regression checks Search selection after typing and keyboard dismissal, indicator position, tab separation and library clearance above the dock. Full validation results are recorded after running it.
+
+Validation completed: debug APK, instrumentation APK, 32 JVM tests and lint passed. The focused navigation regression passed on the isolated Android 15 emulator at 411 dp width and again at 320 dp width with 130% text. Both runs checked persistent Search selection, indicator alignment, non-overlapping tabs and content clearance. The latest APK was installed in place on the physical phone. Physical instrumentation was blocked by its secure lock screen, so no physical-device pass is claimed for this change. Live login and email service remain unverified without a configured Supabase deployment.
+
+Physical-device follow-up after unlock: the focused NavigationClarityDeviceTest passed on the connected phone (8.119 seconds), checking Search after typing/keyboard dismissal, indicator alignment, tab separation and library clearance. The earlier lock-screen limitation is resolved for these navigation checks.

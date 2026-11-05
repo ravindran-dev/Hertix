@@ -5,6 +5,8 @@ import android.net.Uri
 import androidx.core.content.FileProvider
 import com.google.gson.JsonObject
 import kotlinx.coroutines.*
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.io.File
@@ -19,10 +21,16 @@ object CloudMedia {
     private val mutable=MutableStateFlow(CloudTransfer())
     val state=mutable.asStateFlow()
     private var job: Job?=null
+    private val uploadLock=Mutex()
     private val mimeTypes=mapOf("mp3" to "audio/mpeg","m4a" to "audio/mp4","flac" to "audio/flac","ogg" to "audio/ogg","opus" to "audio/ogg","wav" to "audio/wav")
-    suspend fun files()=CloudAccount.api("/rest/v1/cloud_objects?status=neq.deleted&order=created_at.desc&limit=500").asJsonArray.map { it.asJsonObject }
+    suspend fun files():List<JsonObject> {
+        val owner=CloudAccount.state.value.userId ?: error("Sign in first")
+        val rows=mutableListOf<JsonObject>();var offset=0
+        while(true) { val page=CloudAccount.api("/rest/v1/cloud_objects?status=neq.deleted&order=id&limit=500&offset=$offset",expectedOwner=owner).asJsonArray.map {it.asJsonObject}; rows+=page;if(page.size<500)break;offset+=500 }
+        return rows
+    }
     suspend fun usage()=CloudAccount.api("/rest/v1/rpc/storage_usage","POST",JsonObject()).asJsonObject
-    suspend fun action(action: String,id: String)=CloudAccount.api("/functions/v1/account-files","POST",json("action" to action,"object_id" to id))
+    suspend fun action(action: String,id: String,owner:String?=null)=CloudAccount.api("/functions/v1/account-files","POST",json("action" to action,"object_id" to id),owner)
     fun cancel() {job?.cancel()}
     private fun start(block: suspend ()->Unit) {
         if(job?.isActive==true)return
@@ -31,6 +39,9 @@ object CloudMedia {
     }
     private fun hex(bytes:ByteArray)=bytes.joinToString("") { "%02x".format(it) }
     fun upload(context:Context,track:LocalTrack,retry:JsonObject?=null) = start {
+        uploadFile(context,track,retry) { mutable.value=CloudTransfer(true,it) }
+    }
+    suspend fun uploadFile(context:Context,track:LocalTrack,retry:JsonObject?=null,progress:(Int)->Unit={}) = uploadLock.withLock {
         val owner=CloudAccount.state.value.userId ?: error("Sign in first")
         val usage=usage();val max=usage.get("max_file_bytes").asLong
         val mime=mimeTypes[track.format.lowercase()] ?: mimeTypes[track.filename.substringAfterLast('.').lowercase()] ?: error("Supported formats: MP3, M4A, FLAC, OGG, Opus and WAV")
@@ -48,19 +59,19 @@ object CloudMedia {
             val objectId=retry?.get("id")?.asString ?: UUID.randomUUID().toString()
             val result=CloudAccount.api("/rest/v1/rpc/reserve_upload","POST",json("item_id" to item,"object_id" to objectId,"file_name" to track.filename.ifBlank { "${track.title}.${track.format.lowercase()}" }.replace('/','_').replace('\\','_').take(255),"checksum" to checksum,"mime" to mime).apply {addProperty("file_bytes",bytes)},owner).asJsonObject
             reservation=result.get("id").asString
-            if(result.get("status").asString=="ready")return@start
+            if(result.get("status").asString=="ready")return@withLock
             if(result.get("status").asString=="pending") {
                 val connection=connection("/storage/v1/object/music-private/${result.get("object_path").asString}","POST",owner)
                 try {
                     connection.setRequestProperty("Content-Type",mime);connection.doOutput=true;connection.setFixedLengthStreamingMode(bytes)
-                    temporary.inputStream().use { input -> connection.outputStream.use { output -> val buffer=ByteArray(65536);var sent=0L;while(true){currentCoroutineContext().ensureActive();val n=input.read(buffer);if(n<0)break;output.write(buffer,0,n);sent+=n;mutable.value=CloudTransfer(true,(sent*95/bytes).toInt())} } }
+                    temporary.inputStream().use { input -> connection.outputStream.use { output -> val buffer=ByteArray(65536);var sent=0L;while(true){currentCoroutineContext().ensureActive();check(CloudBackupPolicy.networkAllowed(context)){"Waiting for allowed network"};check(CloudAccount.state.value.userId==owner){"Account changed"};val n=input.read(buffer);if(n<0)break;output.write(buffer,0,n);sent+=n;progress((sent*95/bytes).toInt())} } }
                     if(connection.responseCode !in 200..299 && connection.responseCode!=409)throw CloudHttpException(connection.responseCode)
                 } finally {connection.disconnect()}
             }
             currentCoroutineContext().ensureActive();check(CloudAccount.state.value.userId==owner){"Account changed"}
-            action("complete",reservation);CloudSync.retry()
+            action("complete",reservation,owner);CloudSync.retry()
         } catch(e:CancellationException) {
-            if(reservation!=null && CloudAccount.state.value.userId==owner) withContext(NonCancellable){runCatching {action("delete",reservation)}}
+            if(reservation!=null && CloudAccount.state.value.userId==owner && CloudBackupPolicy.networkAllowed(context)) withContext(NonCancellable){runCatching {action("delete",reservation,owner)}}
             throw e
         } finally {temporary.delete()}
     }

@@ -57,24 +57,7 @@ internal fun LiquidGlassPanel(modifier: Modifier = Modifier, backdrop: GraphicsL
     }, backdrop = backdrop ?: scene?.layer,
         contentOrigin = if (backdrop == null) scene?.origin ?: contentOrigin else contentOrigin,
         shape = RoundedCornerShape(radius), screenPosition = true, flexible = false,
-        tintAlpha = if (dark) .26f else .58f, magnification = 1.065f) {
-        Box(Modifier.matchParentSize().drawWithCache {
-            val reflection = Brush.linearGradient(
-                0f to Color.White.copy(alpha = if (dark) .10f else .20f),
-                .24f to Color.Transparent, .72f to Color.White.copy(alpha = .025f),
-                1f to Color.White.copy(alpha = .08f),
-                start = Offset.Zero, end = Offset(size.width, size.height))
-            onDrawBehind {
-                drawRect(reflection)
-                val point = touch.value
-                val strength = pressure.coerceIn(0f, 1f)
-                if (point.isSpecified && strength > .001f) {
-                    drawRect(Brush.radialGradient(listOf(Color.White.copy(alpha = .13f * strength), Color.Transparent),
-                        center = Offset(point.x.coerceIn(0f, size.width), point.y.coerceIn(0f, size.height)),
-                        radius = size.maxDimension.coerceAtLeast(1f) * .6f))
-                }
-            }
-        })
+        tintAlpha = .4f, magnification = 1.065f) {
         content()
     }
 }

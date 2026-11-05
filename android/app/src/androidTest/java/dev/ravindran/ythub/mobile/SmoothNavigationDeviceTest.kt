@@ -19,11 +19,14 @@ class SmoothNavigationDeviceTest {
         compose.waitUntil(30000) { MusicRepository.ready.value }
         val previous = MusicPlayback.state.value
         val prefs = DownloadStore.prefs.value
-        val track = MusicRepository.state.value.tracks.firstOrNull { it.available }
+        val track = MusicRepository.state.value.tracks.firstOrNull { it.available && it.artwork.isNotBlank() && File(it.artwork).exists() } ?: MusicRepository.state.value.tracks.firstOrNull { it.available }
         org.junit.Assume.assumeTrue("Requires local audio", track != null)
         try {
             compose.runOnUiThread { MusicPlayback.play(listOf(track!!.id)); MusicPlayback.pauseIfConnected() }
             compose.waitUntil(15000) { MusicPlayback.state.value.track?.id == track!!.id }
+            val mini = compose.onNodeWithTag("music-mini-player").fetchSemanticsNode().boundsInRoot
+            val art = compose.onNodeWithTag("mini-player-artwork", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            assertTrue("Mini-player artwork must stay inside the bar", mini.contains(art.topLeft) && mini.contains(art.bottomRight))
             compose.onNodeWithTag("music-mini-player").performClick()
             listOf("Light", "Dark").forEach { theme ->
                 compose.runOnUiThread { DownloadStore.savePrefs(prefs.copy(theme = theme)) }
@@ -32,6 +35,13 @@ class SmoothNavigationDeviceTest {
                 val brightness = pixels[1, pixels.height / 2].luminance()
                 assertTrue("Player must follow $theme theme (luminance=$brightness)", if (theme == "Light") brightness > .5f else brightness < .2f)
                 compose.onNodeWithTag("primary-playback").assertIsDisplayed()
+                compose.onNodeWithTag("player-artwork", useUnmergedTree = true).assertIsDisplayed()
+                compose.onNodeWithContentDescription("Previous track").assertIsDisplayed()
+                compose.onNodeWithText("Lyrics").assertIsDisplayed()
+                compose.onNodeWithText("Output").assertIsDisplayed()
+                compose.onNodeWithText("Queue").assertIsDisplayed()
+                val screenshot = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot()
+                File(compose.activity.cacheDir, "smooth-player-$theme.png").outputStream().use { screenshot.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
             }
         } finally {
             compose.runOnUiThread {
@@ -57,12 +67,12 @@ class SmoothNavigationDeviceTest {
             frames.add(compose.activity)
             repeat(4) {
                 compose.onNodeWithTag("nav-Home").performClick()
-                compose.onNodeWithTag("home-library").performScrollTo().performClick()
+                compose.onNodeWithTag("nav-Library").performClick()
                 compose.onNodeWithText("Songs", useUnmergedTree = true).performClick()
                 val list = compose.onNodeWithTag("music-library-list")
                 repeat(3) {
-                    list.performTouchInput { swipe(Offset(center.x, height * .72f), Offset(center.x, height * .26f), 300) }
-                    list.performTouchInput { swipe(Offset(center.x, height * .26f), Offset(center.x, height * .72f), 300) }
+                    physicalSwipe(list, .72f, .26f)
+                    physicalSwipe(list, .26f, .72f)
                 }
                 compose.onNodeWithTag("music-mini-player").performClick()
                 compose.onNodeWithTag("primary-playback").assertIsDisplayed()
@@ -90,4 +100,24 @@ class SmoothNavigationDeviceTest {
             }
         }
     }
+    // Wall-clock input: Compose's synthetic touch clock batches frames and skews frame timings.
+    private fun physicalSwipe(node: SemanticsNodeInteraction, from: Float, to: Float) {
+        val bounds = node.fetchSemanticsNode().boundsInWindow
+        val automation = InstrumentationRegistry.getInstrumentation().uiAutomation
+        val start = android.os.SystemClock.uptimeMillis()
+        fun send(action: Int, fraction: Float) {
+            val event = android.view.MotionEvent.obtain(start, android.os.SystemClock.uptimeMillis(), action,
+                bounds.center.x, bounds.top + bounds.height * (from + (to - from) * fraction), 0)
+            event.source = android.view.InputDevice.SOURCE_TOUCHSCREEN
+            try { automation.injectInputEvent(event, true) } finally { event.recycle() }
+        }
+        send(android.view.MotionEvent.ACTION_DOWN, 0f)
+        for (step in 1..18) {
+            android.os.SystemClock.sleep(16)
+            send(android.view.MotionEvent.ACTION_MOVE, step / 18f)
+        }
+        send(android.view.MotionEvent.ACTION_UP, 1f)
+        compose.waitForIdle()
+    }
+
 }

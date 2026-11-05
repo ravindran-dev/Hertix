@@ -31,7 +31,7 @@ class DockGlassDeviceTest {
                 Box(Modifier.fillMaxSize()) {
                     Box(Modifier.fillMaxSize().captureDockGlass(capture, atmosphere).background(tone))
                     Box(Modifier.align(Alignment.BottomCenter)) {
-                        FloatingPlaybackDock({}, {}, {}, {}, dark, capture)
+                        FloatingPlaybackDock("Home", {}, {}, {}, {}, {}, dark, capture)
                     }
                 }
             }

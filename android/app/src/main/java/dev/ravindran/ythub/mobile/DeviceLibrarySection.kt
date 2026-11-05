@@ -24,7 +24,7 @@ fun DeviceLibrarySection() {
     var selected by remember {mutableStateOf<Set<String>>(emptySet())}
     val tasks by DownloadStore.items.collectAsStateWithLifecycle()
     var error by remember {mutableStateOf("")}
-    LaunchedEffect(sync.lastSync,music.tracks,transfer.busy) {
+    LaunchedEffect(sync.rows,music.tracks,transfer.busy) {
         if(transfer.busy)return@LaunchedEffect
         try {
             records=CloudMedia.files().filter {it.get("status").asString=="ready"}
@@ -49,8 +49,8 @@ fun DeviceLibrarySection() {
     val cloudTasks=tasks.filter {it.cloudRecord!=null && it.accountId==CloudAccount.state.value.userId}
     LazyColumn(Modifier.fillMaxSize(),contentPadding=PaddingValues(bottom=LocalMusicBottomPadding.current+20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
     item {
-    Text("Your music on this device",style=MaterialTheme.typography.titleMedium)
-    Text("${states.size} account songs · $available on this device · $missing ready to download",style=MaterialTheme.typography.bodySmall)
+    Text("Online library",style=MaterialTheme.typography.titleMedium)
+    Text("${states.size} cloud song records · $available offline · $missing audio files ready to download",style=MaterialTheme.typography.bodySmall)
     Row {TextButton(onClick={selected=downloadable.map {it.get("id").asString}.toSet()}){Text("Select all")};TextButton(onClick={selected=emptySet()}){Text("Select none")}}
     Button(enabled=downloadable.isNotEmpty(),onClick={schedule(downloadable.map {it.get("id").asString}.toSet())}){Text("Download all missing")}
     if(selected.isNotEmpty()) OutlinedButton(onClick={schedule(selected);selected=emptySet()}){Text("Download selected (${selected.size})")}

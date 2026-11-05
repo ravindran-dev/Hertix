@@ -9,6 +9,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.material.icons.filled.ExpandMore
+import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -22,6 +23,9 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.material3.*
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -35,12 +39,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 internal object MobileUi {
-    val background = Color(0xFF090A0D)
-    val surface = Color(0xFF111319)
-    val elevated = Color(0xFF191C24)
+    val background = Color(0xFF0B0B0D)
+    val surface = Color(0xFF18181B)
+    val elevated = Color(0xFF242427)
     val accent = Color(0xFFFF1838)
     val page = 16.dp
-    val card = RoundedCornerShape(16.dp)
+    val card = RoundedCornerShape(10.dp)
 }
 internal val PlayerCrimson = MobileUi.accent
 internal fun musicTypography(): Typography {
@@ -52,8 +56,8 @@ internal fun musicTypography(): Typography {
         headlineMedium = t.headlineMedium.copy(fontFamily = family, fontWeight = FontWeight.Bold, fontSize = 24.sp, lineHeight = 30.sp),
         titleLarge = t.titleLarge.copy(fontFamily = family, fontWeight = FontWeight.SemiBold, fontSize = 17.sp, lineHeight = 23.sp),
         titleMedium = t.titleMedium.copy(fontFamily = family, fontWeight = FontWeight.SemiBold, fontSize = 15.sp, lineHeight = 21.sp),
-        titleSmall = t.titleSmall.copy(fontFamily = family), bodyLarge = t.bodyLarge.copy(fontFamily = family, fontSize = 14.sp, lineHeight = 20.sp),
-        bodyMedium = t.bodyMedium.copy(fontFamily = family), bodySmall = t.bodySmall.copy(fontFamily = family),
+        titleSmall = t.titleSmall.copy(fontFamily = family,fontWeight = FontWeight.Medium,fontSize = 15.sp,lineHeight = 21.sp), bodyLarge = t.bodyLarge.copy(fontFamily = family, fontSize = 14.sp, lineHeight = 20.sp),
+        bodyMedium = t.bodyMedium.copy(fontFamily = family,fontSize = 14.sp,lineHeight = 20.sp), bodySmall = t.bodySmall.copy(fontFamily = family,fontSize = 12.sp,lineHeight = 17.sp),
         labelLarge = t.labelLarge.copy(fontFamily = family, fontWeight = FontWeight.SemiBold),
         labelMedium = t.labelMedium.copy(fontFamily = family), labelSmall = t.labelSmall.copy(fontFamily = family)
     )
@@ -65,17 +69,32 @@ internal fun musicTypography(): Typography {
     }
 }
 @Composable internal fun MusicArtworkCard(track: LocalTrack, subtitle: String = track.artist, modifier: Modifier = Modifier, onMore: (() -> Unit)? = null, onClick: () -> Unit) {
-    Surface(onClick = onClick, enabled = track.available, shape = MobileUi.card, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .06f)), modifier = modifier) {
-        Column(Modifier.padding(8.dp)) {
-            Box {
-                TrackArtwork(track, Modifier.fillMaxWidth().aspectRatio(1f))
-                if (onMore != null) IconButton(onClick = onMore, modifier = Modifier.align(Alignment.TopEnd)) { Icon(Icons.Default.MoreHoriz, "Options for ${track.title}", tint = Color.White) }
+    val playerFlow=remember {MusicPlayback.state.map {it.track?.id to it.playing}.distinctUntilChanged()}
+    val player by playerFlow.collectAsStateWithLifecycle(initialValue=remember {MusicPlayback.state.value.let {it.track?.id to it.playing}})
+    val active=player.first==track.id
+    Column(modifier.clip(RoundedCornerShape(10.dp)).glassTouch(onClick,track.available).padding(bottom=6.dp)) {
+        Box {
+            TrackArtwork(track,Modifier.fillMaxWidth().aspectRatio(1f))
+            if(active)Surface(Modifier.align(Alignment.BottomStart).padding(8.dp),shape=RoundedCornerShape(6.dp),color=Color.Black.copy(alpha=.68f)) {
+                Row(Modifier.padding(horizontal=7.dp,vertical=5.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(5.dp)) {
+                    PlayingNotation(player.second,Modifier.size(13.dp),Color.White)
+                    Text(if(player.second) "Playing" else "Paused",fontSize=10.sp,lineHeight=13.sp,color=Color.White)
+                }
             }
-            Row(Modifier.fillMaxWidth().padding(start = 4.dp, top = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(track.title, Modifier.weight(1f), maxLines = 2, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+            if(onMore!=null)IconButton(onClick=onMore,modifier=Modifier.align(Alignment.TopEnd).padding(4.dp).size(36.dp).clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha=.40f))) {
+                Icon(Icons.Default.MoreHoriz,"Options for ${track.title}",Modifier.size(20.dp),tint=Color.White)
             }
-            Text(if (track.available) subtitle else "File unavailable", Modifier.padding(start = 4.dp, end = 4.dp, top = 4.dp, bottom = 6.dp), maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        Text(track.title,Modifier.fillMaxWidth().padding(top=9.dp),maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=14.sp,lineHeight=20.sp,fontWeight=FontWeight.Medium,color=if(active)MobileUi.accent else MaterialTheme.colorScheme.onSurface)
+        Text(if(track.available)subtitle else "File unavailable",Modifier.fillMaxWidth().padding(top=2.dp),maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=12.sp,lineHeight=17.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+@Composable internal fun PlaylistCover(playlist:LocalPlaylist,tracks:List<LocalTrack>,modifier:Modifier=Modifier) {
+    val covers=remember(playlist.tracks,tracks) {val byId=tracks.associateBy {it.id};playlist.tracks.mapNotNull {byId[it]}.filter {it.artwork.isNotBlank()}.distinctBy {it.artwork}.take(4)}
+    Box(modifier.clip(RoundedCornerShape(10.dp))) {
+        if(covers.size==4) Column(Modifier.fillMaxSize()) {
+            covers.chunked(2).forEach {row ->Row(Modifier.weight(1f)) {row.forEach {track ->TrackArtwork(track,Modifier.weight(1f).fillMaxHeight(),RoundedCornerShape(0.dp))}}}
+        } else TrackArtwork(covers.firstOrNull() ?: LocalTrack(playlist.id,"playlist://${playlist.id}",playlist.name,album=playlist.name),Modifier.fillMaxSize())
     }
 }
 @Composable internal fun MusicShelf(title: String, tracks: List<LocalTrack>, empty: String, onAll: () -> Unit, onTrack: (LocalTrack) -> Unit) {
@@ -83,22 +102,21 @@ internal fun musicTypography(): Typography {
     if (tracks.isEmpty()) Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surface) {
         Text(empty, Modifier.fillMaxWidth().padding(14.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
     } else LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        items(tracks.take(8), key = { it.id }) { track -> MusicArtworkCard(track, modifier = Modifier.width(132.dp)) { onTrack(track) } }
+        items(tracks.take(8), key = { it.id }) { track -> MusicArtworkCard(track, modifier = Modifier.width(150.dp)) { onTrack(track) } }
     }
 }
 @Composable internal fun PlaylistArtworkRow(playlist: LocalPlaylist, tracks: List<LocalTrack>, onClick: () -> Unit) {
-    val ordered = remember(playlist.tracks, tracks) { val byId = tracks.associateBy { it.id }; playlist.tracks.mapNotNull { byId[it] } }
-    Surface(onClick = onClick, shape = RoundedCornerShape(50),
-        color = MaterialTheme.colorScheme.surface.copy(alpha = .62f),
-        border = BorderStroke(.65.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .12f)), modifier = Modifier.fillMaxWidth()) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            TrackArtwork(ordered.firstOrNull(), Modifier.size(44.dp).clip(RoundedCornerShape(50)))
-            Column(Modifier.weight(1f).padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(playlist.name, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
-                Text("${playlist.tracks.size} tracks · ${durationLabel(ordered.sumOf { it.durationMs } / 1000)}", maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val ordered=remember(playlist.tracks,tracks) {val byId=tracks.associateBy {it.id};playlist.tracks.mapNotNull {byId[it]}}
+    Column {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).glassTouch(onClick).padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(14.dp)) {
+            PlaylistCover(playlist,tracks,Modifier.size(62.dp))
+            Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(4.dp)) {
+                Text(playlist.name,maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=16.sp,lineHeight=22.sp,fontWeight=FontWeight.SemiBold)
+                Text("${playlist.tracks.size} songs · ${durationLabel(ordered.sumOf {it.durationMs}/1000)}",maxLines=1,overflow=TextOverflow.Ellipsis,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            Icon(Icons.Default.ChevronRight, "Open playlist", Modifier.size(20.dp))
+            Icon(Icons.Default.ChevronRight,"Open playlist",Modifier.size(18.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        HorizontalDivider(Modifier.padding(start=76.dp),thickness=.5.dp,color=MaterialTheme.colorScheme.onSurface.copy(alpha=.07f))
     }
 }
 @Composable internal fun MusicSettingsSection(title: String, summary: String, initiallyExpanded: Boolean = false, content: @Composable ColumnScope.() -> Unit) {

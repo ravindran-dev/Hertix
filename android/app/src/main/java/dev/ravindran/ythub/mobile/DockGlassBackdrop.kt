@@ -28,13 +28,15 @@ internal class DockGlassState(val layer: GraphicsLayer) {
     var bounds by mutableStateOf(Rect.Zero)
     var contentOrigin by mutableStateOf(Offset.Zero)
     var scrolling by mutableStateOf(false)
+    var lastCaptureNanos=0L
+    var capturedBounds=Rect.Zero
 }
 
 @Composable
 internal fun rememberDockGlassState(): DockGlassState {
     val layer = rememberGraphicsLayer()
     return remember(layer) {
-        if (Build.VERSION.SDK_INT >= 31) layer.renderEffect = BlurEffect(12f, 12f, TileMode.Clamp)
+        // The glass renderer applies blur and refraction to the sampled layer.
         DockGlassState(layer)
     }
 }
@@ -42,19 +44,29 @@ internal fun rememberDockGlassState(): DockGlassState {
 /** Capture only the strip behind the dock. The dock itself is outside this draw subtree. */
 @Composable
 internal fun Modifier.captureDockGlass(state: DockGlassState, atmosphere: GraphicsLayer, enabled: Boolean = true): Modifier {
+    val foreground = rememberGraphicsLayer()
     return onGloballyPositioned { state.contentOrigin = it.positionInRoot() }.drawWithContent {
         val bounds = state.bounds
-        if (enabled && bounds.width > 0f && bounds.height > 0f) {
+        if (!enabled || bounds.width <= 0f || bounds.height <= 0f) {
+            drawContent()
+            return@drawWithContent
+        }
+        // Record Compose content once; both the viewport and cropped dock reuse its render node.
+        foreground.record { this@drawWithContent.drawContent() }
+        val now=System.nanoTime()
+        val refresh = !state.scrolling || state.capturedBounds!=bounds || now-state.lastCaptureNanos>=33_333_333L
+        if (enabled && refresh && bounds.width > 0f && bounds.height > 0f) {
+            state.lastCaptureNanos=now;state.capturedBounds=bounds
             val crop = bounds.inflate(24.dp.toPx())
             // Use the same live backdrop during idle, drag and fling.
             state.layer.record(size = IntSize(ceil(crop.width / 2f).toInt(), ceil(crop.height / 2f).toInt())) {
                 scale(.5f, .5f, Offset.Zero) {
                     translate(-crop.left, -crop.top) { drawLayer(atmosphere) }
-                    translate(state.contentOrigin.x - crop.left, state.contentOrigin.y - crop.top) { this@drawWithContent.drawContent() }
+                    translate(state.contentOrigin.x - crop.left, state.contentOrigin.y - crop.top) { drawLayer(foreground) }
                 }
             }
         }
-        drawContent()
+        drawLayer(foreground)
     }
 }
 

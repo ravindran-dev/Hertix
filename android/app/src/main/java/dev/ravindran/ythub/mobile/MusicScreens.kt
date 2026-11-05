@@ -40,6 +40,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.layer.GraphicsLayer
@@ -67,20 +68,30 @@ import java.io.File
 private val MusicRed = Color(0xFFFF173D)
 private val MusicShape = MobileUi.card
 
-@Composable internal fun TrackArtwork(track: LocalTrack?, modifier: Modifier = Modifier) {
-    Box(modifier.clip(RoundedCornerShape(12.dp)).background(Brush.linearGradient(listOf(Color(0xFF35111C), Color(0xFF101317)))), contentAlignment = Alignment.Center) {
-        Icon(Icons.Default.MusicNote, null, Modifier.fillMaxSize(.38f), tint = MusicRed.copy(alpha = .85f))
-        Text("YTHub", Modifier.align(Alignment.BottomCenter).padding(bottom = 3.dp), color = Color.White, fontSize = 8.sp, fontWeight = FontWeight.SemiBold)
-        if (track?.artwork?.isNotBlank() == true) AsyncImage(remember(track.artwork) { File(track.artwork) }, "Album artwork", Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
-
+@Composable internal fun TrackArtwork(track: LocalTrack?, modifier: Modifier = Modifier, shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(8.dp)) {
+    val identity=track?.album?.takeUnless {it.isBlank() || it=="Unknown album"} ?: track?.artist?.takeUnless {it.isBlank() || it=="Unknown artist"} ?: track?.id.orEmpty()
+    val palette=remember(identity) {
+        val colors=listOf(Color(0xFF496B70),Color(0xFF58628A),Color(0xFF896456),Color(0xFF725C7D),Color(0xFF697350),Color(0xFF476C86))
+        colors[Math.floorMod(identity.hashCode(),colors.size)]
+    }
+    Box(modifier.clip(shape).background(Brush.linearGradient(listOf(palette,palette.copy(red=palette.red*.38f,green=palette.green*.38f,blue=palette.blue*.38f)))).drawBehind {
+        drawCircle(Color.White.copy(alpha=.045f),radius=size.minDimension*.40f,center=Offset(size.width*.78f,size.height*.18f))
+        drawCircle(Color.White.copy(alpha=.035f),radius=size.minDimension*.55f,center=Offset(size.width*.10f,size.height*.95f))
+    },contentAlignment=Alignment.Center) {
+        Icon(Icons.Rounded.Album,null,Modifier.fillMaxSize(.34f),tint=Color.White.copy(alpha=.55f))
+        if(track?.artwork?.isNotBlank()==true) AsyncImage(remember(track.artwork) {File(track.artwork)},"Album artwork",Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
     }
 }
-@Composable internal fun MusicLibraryScreen(onDetailChanged: (Boolean) -> Unit = {}, onPlayer: () -> Unit, onDownload: (String) -> Unit, rootRequested: Boolean = false, onRootConsumed: () -> Unit = {}, requestedPlaylist: String? = null, onPlaylistConsumed: () -> Unit = {}, searchRequested: Boolean = false, onSearchConsumed: () -> Unit = {}) {
+@Composable internal fun MusicLibraryScreen(onDetailChanged: (Boolean) -> Unit = {}, onPlayer: () -> Unit, onDownload: (String) -> Unit, rootRequested: Boolean = false, onRootConsumed: () -> Unit = {}, requestedPlaylist: String? = null, onPlaylistConsumed: () -> Unit = {}, searchRequested: Boolean = false, onSearchChanged: (Boolean) -> Unit = {}, onOnline: () -> Unit = {}, onSearchConsumed: () -> Unit = {}) {
     val libraryFlow = remember { MusicRepository.state.map { it.copy(queue = emptyList(), queueIndex = 0, position = 0, repeat = 0, shuffle = false) }.distinctUntilChanged() }
     val state by libraryFlow.collectAsStateWithLifecycle(initialValue = remember { MusicRepository.state.value })
     val scanning by MusicRepository.scanning.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val listState = rememberLazyListState()
+    val pageScroll = LocalPageScroll.current
+    val dock=LocalDockGlass.current
+    LaunchedEffect(listState,dock) {snapshotFlow {listState.isScrollInProgress}.collect {dock?.scrolling=it}}
+    DisposableEffect(dock) {onDispose {dock?.scrolling=false}}
     val searchFocus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
@@ -120,13 +131,12 @@ private val MusicShape = MobileUi.card
     LaunchedEffect(requestedPlaylist) { if (requestedPlaylist != null) { playlistId = requestedPlaylist; category = "Playlists"; searching = false; onPlaylistConsumed() } }
     LaunchedEffect(searchRequested) { if (searchRequested) { searching = true; category = "All Songs"; source = "All sources"; playlistId = null; group = null; onSearchConsumed() } }
     var previousSection by rememberSaveable { mutableStateOf("$category:$playlistId:$group") }
-    LaunchedEffect(category, playlistId, group) { val section = "$category:$playlistId:$group"; if (section != previousSection) { listState.scrollToItem(0); previousSection = section } }
-    LaunchedEffect(searching) { if (searching) { listState.scrollToItem(0); withFrameNanos { }; searchFocus.requestFocus() } }
+    LaunchedEffect(category, playlistId, group) { pageScroll?.reset(); val section = "$category:$playlistId:$group"; if (section != previousSection) { listState.scrollToItem(0); previousSection = section } }
+    LaunchedEffect(searching) { onSearchChanged(searching); if (searching) { listState.scrollToItem(0); withFrameNanos { }; searchFocus.requestFocus() } }
     val sectionReveal = remember { Animatable(1f) }
     LaunchedEffect(playlistId, group, category, searching) {
         onDetailChanged(playlistId != null || group != null || category != "Overview" && !searching)
-        sectionReveal.snapTo(.96f)
-        sectionReveal.animateTo(1f, tween(160))
+        sectionReveal.snapTo(1f)
     }
     fun libraryBack() {
         when { playlistId != null -> playlistId = null; group != null -> group = null; searching -> { searching = false; query = "" }; else -> category = "Overview" }
@@ -161,46 +171,24 @@ private val MusicShape = MobileUi.card
     val recentAdded = remember(state.tracks) { state.tracks.sortedByDescending { it.added }.take(12) }
     val trackKeys = remember(tracks) { motionTrackKeys(tracks.map { it.id }) }
     Box(Modifier.fillMaxSize()) {
-    if (playlist != null) ArtworkAtmosphere(state.tracks.firstOrNull { it.id in playlist.tracks }, Modifier.matchParentSize(), strong = false)
     LazyColumn(Modifier.fillMaxSize().graphicsLayer {
         translationY = (1f - sectionReveal.value) * 250f
-    }.testTag("music-library-list"), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = LocalMusicBottomPadding.current + 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    }.testTag("music-library-list"), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = if (playlist != null || !searching && (category != "Overview" || group != null)) 60.dp else 0.dp, bottom = LocalMusicBottomPadding.current + 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
         item {
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (playlist == null && !searching && (category != "Overview" || group != null)) {
-                ContextControls(onBack = ::libraryBack, onAdd = { devicePlaylist = null; devicePicker = true }, onMore = { libraryMenu = true }, addLabel = "Phone music")
-                if (libraryMenu) GlassActionPopover("Library options", { libraryMenu = false }) {
-                    listOf("Title", "Artist", "Recently added", "Recently played", "Duration", "File size").forEach { choice ->
-                        GlassMenuItem(text = { Text("Sort: $choice") }, onClick = { sort = choice; libraryMenu = false })
-                    }
-                    listOf("All sources", "Downloaded", "Imported").forEach { choice ->
-                        GlassMenuItem(text = { Text(choice) }, onClick = { source = choice; libraryMenu = false })
-                    }
-                    GlassMenuItem(text = { Text(if (effectiveLayout == "Grid") "Use compact list" else "Use artwork grid") }, onClick = {
-                        val next = if (effectiveLayout == "Grid") "Compact" else "Grid"
-                        MusicRepository.settings(if (category == "All Songs") state.settings.copy(songsLayout = next) else state.settings.copy(libraryLayout = next)); libraryMenu = false
-                    })
+            if (playlist != null) {
+                Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+                    PlaylistCover(playlist, state.tracks, Modifier.size(216.dp))
                 }
             }
-            if (playlist != null) {
-                ContextControls(onBack = ::libraryBack, onAdd = { devicePlaylist = playlist.id; devicePicker = true }, onMore = { playlistMenu = true }, addLabel = "Add phone music to playlist")
-                Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
-                    TrackArtwork(state.tracks.firstOrNull { it.id in playlist.tracks }, Modifier.size(224.dp))
+            if(playlist==null && group!=null && category in listOf("Albums","Artists")) {
+                val members=state.tracks.filter {if(category=="Albums")it.album==group else it.artist==group}
+                Box(Modifier.fillMaxWidth().padding(top=8.dp,bottom=18.dp),contentAlignment=Alignment.Center) {
+                    TrackArtwork(members.firstOrNull {it.artwork.isNotBlank()} ?: members.firstOrNull(),Modifier.size(196.dp),shape=if(category=="Artists") androidx.compose.foundation.shape.CircleShape else RoundedCornerShape(12.dp))
                 }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (searching) "Search music" else playlist?.name ?: group ?: when (category) { "Overview" -> "Your music"; "All Songs" -> "Songs"; else -> category }, style = if (playlist != null || searching) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineLarge, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                if (playlist != null) {
-
-                    Box {
-
-                        if (playlistMenu) GlassActionPopover(playlist.name, { playlistMenu = false }) {
-                            GlassMenuItem(text = { Text("Add playlist to queue") }, onClick = { MusicPlayback.enqueue(playlist.tracks); playlistMenu = false })
-                            GlassMenuItem(text = { Text("Rename") }, onClick = { rename = true; name = playlist.name; playlistMenu = false })
-                            GlassMenuItem(text = { Text("Delete playlist") }, onClick = { confirmDelete = true; playlistMenu = false })
-                        }
-                    }
-                }
+                Text(if (searching) "Search music" else playlist?.name ?: group?.let {if(it=="Unknown album") "Unsorted songs" else it} ?: when (category) { "Overview" -> "Offline library"; "All Songs" -> "Songs"; else -> category }, style = if (playlist != null || searching) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineLarge, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             }
             Text(if (searching) "Find songs, artists, albums or files" else if (playlist == null) when {
                 category == "Playlists" -> "${state.playlists.size} playlists"
@@ -208,6 +196,7 @@ private val MusicShape = MobileUi.card
                 category == "Artists" && group == null -> "${base.map { it.artist }.distinct().size} artists"
                 else -> "${tracks.size} songs · offline and yours"
             } else "${playlist.tracks.size} tracks · ${durationLabel(playlist.tracks.mapNotNull { id -> allById[id] }.sumOf { it.durationMs } / 1000)} · ${if (playlist.downloadId != null) "Downloaded" else "Local playlist"}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp).testTag("library-summary"))
+            if (playlist == null && !searching && category == "Overview") Row { TextButton(onClick = {}, enabled = false) { Text("Offline", maxLines = 1) }; TextButton(onClick = onOnline) { Text("Online", maxLines = 1) } }
             if (playlist == null && !searching && category == "Overview") Row(Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(onClick = { devicePlaylist = playlist?.id; devicePicker = true }) { Icon(Icons.Default.Add, null); Text("Phone music") }
                 IconButton(onClick = { scope.launch { MusicRepository.rescan(true) } }, enabled = !scanning) { Icon(Icons.Default.Refresh, "Rescan library") }
@@ -269,16 +258,28 @@ private val MusicShape = MobileUi.card
             }
         } else if (category in listOf("Albums", "Artists", "Folders") && group == null) {
             val groups = base.groupBy { when (category) { "Albums" -> it.album; "Artists" -> it.artist; else -> it.folder } }
-            itemsIndexed(groups.keys.sorted(), key = { _, key -> "group-$key" }, contentType = { _, _ -> "collection" }) { _, key ->
-                val members = groups[key].orEmpty()
-                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).glassTouch({ group = key }).padding(vertical = 10.dp, horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TrackArtwork(members.firstOrNull(), Modifier.size(52.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(key, style = MaterialTheme.typography.titleSmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text("${members.size} ${if (members.size == 1) "song" else "songs"} · ${durationLabel(members.sumOf { it.durationMs } / 1000)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if(category=="Albums") {
+                itemsIndexed(groups.keys.sorted().chunked(2),key={index,_->"album-pair-$index"}) {_, names ->
+                    Row(Modifier.fillMaxWidth().padding(vertical=4.dp),horizontalArrangement=Arrangement.spacedBy(16.dp)) {
+                        names.forEach { name ->
+                            val members=groups[name].orEmpty()
+                            val cover=members.firstOrNull {it.artwork.isNotBlank()} ?: members.first()
+                            val artist=members.map {it.artist}.distinct().singleOrNull()?.takeUnless {it=="Unknown artist"} ?: "Various artists"
+                            MusicArtworkCard(cover.copy(title=if(name=="Unknown album") "Unsorted songs" else name,available=true),subtitle="$artist · ${members.size} ${if(members.size==1) "song" else "songs"}",modifier=Modifier.weight(1f)) {group=name}
+                        }
+                        if(names.size==1)Spacer(Modifier.weight(1f))
                     }
-                    Icon(Icons.Rounded.ChevronRight, null, Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            } else itemsIndexed(groups.keys.sorted(),key={_,key->"group-$key"}) {_,key ->
+                val members=groups[key].orEmpty()
+                val cover=members.firstOrNull {it.artwork.isNotBlank()} ?: members.firstOrNull()
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).glassTouch({group=key}).padding(vertical=8.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(14.dp)) {
+                    TrackArtwork(cover,Modifier.size(60.dp),shape=if(category=="Artists") androidx.compose.foundation.shape.CircleShape else RoundedCornerShape(10.dp))
+                    Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                        Text(key,style=MaterialTheme.typography.titleMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
+                        Text("${members.size} ${if(members.size==1) "song" else "songs"} · ${durationLabel(members.sumOf {it.durationMs}/1000)}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                    Icon(Icons.Rounded.ChevronRight,null,Modifier.size(18.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else {
@@ -324,6 +325,31 @@ private val MusicShape = MobileUi.card
             if (tracks.any { !it.available }) item { TextButton(onClick = { MusicRepository.remove(tracks.filterNot { it.available }.map { it.id }.toSet()) }) { Text("Remove unavailable entries") } }
         }
     }
+    if (playlist != null || !searching && (category != "Overview" || group != null)) {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp).testTag("fixed-library-glass-actions")) {
+            ContextControls(onBack = ::libraryBack,
+                onAdd = { devicePlaylist = playlist?.id; devicePicker = true },
+                onMore = { if (playlist != null) playlistMenu = true else libraryMenu = true },
+                addLabel = if (playlist != null) "Add phone music to playlist" else "Phone music")
+        }
+    }
+    }
+    if (libraryMenu) GlassActionPopover("Library options", { libraryMenu = false }) {
+        listOf("Title", "Artist", "Recently added", "Recently played", "Duration", "File size").forEach { choice ->
+            GlassMenuItem(text = { Text("Sort: $choice") }, onClick = { sort = choice; libraryMenu = false })
+        }
+        listOf("All sources", "Downloaded", "Imported").forEach { choice ->
+            GlassMenuItem(text = { Text(choice) }, onClick = { source = choice; libraryMenu = false })
+        }
+        GlassMenuItem(text = { Text(if (effectiveLayout == "Grid") "Use compact list" else "Use artwork grid") }, onClick = {
+            val next = if (effectiveLayout == "Grid") "Compact" else "Grid"
+            MusicRepository.settings(if (category == "All Songs") state.settings.copy(songsLayout = next) else state.settings.copy(libraryLayout = next)); libraryMenu = false
+        })
+    }
+    if (playlistMenu && playlist != null) GlassActionPopover(playlist.name, { playlistMenu = false }) {
+        GlassMenuItem(text = { Text("Add playlist to queue") }, onClick = { MusicPlayback.enqueue(playlist.tracks); playlistMenu = false })
+        GlassMenuItem(text = { Text("Rename") }, onClick = { rename = true; name = playlist.name; playlistMenu = false })
+        GlassMenuItem(text = { Text("Delete playlist") }, onClick = { confirmDelete = true; playlistMenu = false })
     }
     if (devicePicker) DeviceMusicPicker(devicePlaylist, onDismiss = { devicePicker = false }, onChooseFiles = { devicePicker = false; picker.launch(arrayOf("audio/*")) })
     if (create || rename) GlassConfirmDialog(onDismissRequest = { create = false; rename = false }, title = { Text(if (rename) "Rename playlist" else "Create playlist") },
@@ -338,21 +364,30 @@ private val MusicShape = MobileUi.card
     addTracks?.let { ids -> PlaylistPicker(ids) { addTracks = null; selected = emptySet() } }
 }
 @Composable private fun MusicTrackRow(track: LocalTrack, number: Int? = null, selected: Boolean, selectionActive: Boolean, showCheckbox: Boolean, onSelect: () -> Unit, onPlay: () -> Unit, onMore: () -> Unit) {
-    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surface.copy(alpha = .55f)) {
-        Row(Modifier.fillMaxWidth().padding(4.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (showCheckbox) Checkbox(selected, { onSelect() }, modifier = Modifier.size(40.dp))
-            Row(Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).combinedClickable(enabled = track.available, onClick = { if (selectionActive) onSelect() else onPlay() }, onLongClick = onSelect).padding(vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (number != null && !selectionActive) Text(number.toString(), Modifier.width(22.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                TrackArtwork(track, Modifier.size(40.dp))
-                Column(Modifier.weight(1f).padding(start = 10.dp)) {
-                    Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-                    Text(if (track.available) track.artist else "File unavailable · rescan or remove", style = MaterialTheme.typography.bodySmall, color = if (track.available) MaterialTheme.colorScheme.onSurfaceVariant else MusicRed, maxLines = if (track.available) 1 else 2, overflow = TextOverflow.Ellipsis)
-
+    val currentFlow=remember {MusicPlayback.state.map {it.track?.id to it.playing}.distinctUntilChanged()}
+    val current by currentFlow.collectAsStateWithLifecycle(initialValue=remember {MusicPlayback.state.value.let {it.track?.id to it.playing}})
+    val active=current.first==track.id
+    Column {
+        Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(if(selected || active)MusicRed.copy(alpha=.10f) else Color.Transparent).heightIn(min=68.dp),verticalAlignment=Alignment.CenterVertically) {
+            Box(Modifier.width(3.dp).height(34.dp).background(if(active)MusicRed else Color.Transparent,RoundedCornerShape(50)))
+            if(showCheckbox)Checkbox(selected,{onSelect()},modifier=Modifier.size(40.dp))
+            Row(Modifier.weight(1f).combinedClickable(enabled=track.available,onClick={if(selectionActive)onSelect() else onPlay()},onLongClick=onSelect).padding(vertical=8.dp,horizontal=6.dp),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(14.dp)) {
+                if(number!=null && !selectionActive) Box(Modifier.width(24.dp).height(48.dp),contentAlignment=Alignment.Center) {
+                    if(active)PlayingNotation(current.second,Modifier.size(19.dp))
+                    else Text(number.toString(),fontSize=13.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                } else Box(Modifier.size(50.dp)) {
+                    TrackArtwork(track,Modifier.fillMaxSize())
+                    if(active)Box(Modifier.matchParentSize().clip(RoundedCornerShape(8.dp)).background(Color.Black.copy(alpha=.38f)),contentAlignment=Alignment.Center) {PlayingNotation(current.second,Modifier.size(21.dp),Color.White)}
+                }
+                Column(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                    Text(track.title,fontSize=15.sp,lineHeight=21.sp,fontWeight=FontWeight.Medium,maxLines=1,overflow=TextOverflow.Ellipsis,color=if(active)MusicRed else MaterialTheme.colorScheme.onSurface)
+                    Text(if(!track.available) "File unavailable" else if(active) "${if(current.second) "Playing" else "Paused"} · ${track.artist}" else track.artist,fontSize=12.sp,lineHeight=17.sp,color=MaterialTheme.colorScheme.onSurfaceVariant,maxLines=1,overflow=TextOverflow.Ellipsis)
                 }
             }
-            Text(durationLabel(track.durationMs / 1000), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            IconButton(onClick = onMore) { Icon(Icons.Default.MoreHoriz, "Options for ${track.title}") }
+            Text(if(track.durationMs>0)durationLabel(track.durationMs/1000) else "—",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            IconButton(onClick=onMore) {Icon(Icons.Default.MoreHoriz,"Options for ${track.title}",Modifier.size(20.dp),tint=MaterialTheme.colorScheme.onSurfaceVariant)}
         }
+        HorizontalDivider(Modifier.padding(start=if(number!=null)44.dp else 70.dp),thickness=.5.dp,color=MaterialTheme.colorScheme.onSurface.copy(alpha=.07f))
     }
 }
 @Composable internal fun MusicEmpty(title: String, description: String) {

@@ -1,6 +1,7 @@
 package dev.ravindran.ythub.mobile
 
 import android.os.Build
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
@@ -14,6 +15,7 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.interaction.collectIsHoveredAsState
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -29,6 +31,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
@@ -56,6 +59,8 @@ import androidx.compose.ui.unit.sp
 
 // One interaction source per glass surface lets a capsule flex as one continuous object.
 internal data class GlassScene(val layer: GraphicsLayer, val origin: Offset)
+internal val LocalDockGlass = staticCompositionLocalOf<DockGlassState?> { null }
+internal val LocalAccountAction = staticCompositionLocalOf<(() -> Unit)?> { null }
 internal val LocalGlassScene = staticCompositionLocalOf<GlassScene?> { null }
 private val LocalGlassInteraction = staticCompositionLocalOf<MutableInteractionSource?> { null }
 
@@ -109,50 +114,67 @@ internal fun GlassControlSurface(modifier: Modifier = Modifier, dark: Boolean = 
     val compression by animateFloatAsState(if (pressed) 1f else 0f, spring(dampingRatio = .72f, stiffness = 450f), label = "Glass compression")
     val highlight by animateFloatAsState(if (pressed) .10f else if (hovered) .04f else 0f, spring(stiffness = 600f), label = "Glass highlight")
     val highlightColor = MaterialTheme.colorScheme.onSurface
-    val rimColors = if (dark) listOf(Color.White.copy(alpha = .40f), Color.White.copy(alpha = .06f), Color.White.copy(alpha = .18f))
-        else listOf(Color.White.copy(alpha = .95f), Color(0xFF7A8090).copy(alpha = .20f), Color.White.copy(alpha = .72f))
-    Box(modifier.graphicsLayer { scaleX = 1f - .025f * compression; scaleY = 1f - .055f * compression }.shadow(4.dp, shape, ambientColor = Color.Black.copy(alpha = .12f), spotColor = Color.Black.copy(alpha = .15f)).clip(shape).onGloballyPositioned { origin.value = if (screenPosition) it.positionOnScreen() else it.positionInRoot() }
-        .border(.65.dp, Brush.verticalGradient(rimColors), shape)) {
-        Box(Modifier.matchParentSize()) {
-            if (dockBackdrop != null) DockGlassBackdrop(dockBackdrop, origin)
-            else if (backdrop != null) GlassBackdrop(backdrop, contentOrigin, origin, magnification)
-            else if (ambientBackdrop != null) GlassBackdrop(ambientBackdrop, Offset.Zero, origin, magnification)
-            Box(Modifier.fillMaxSize().background(if (dark) Color(0xFF28282D).copy(alpha = tintAlpha ?: .30f) else Color.White.copy(alpha = tintAlpha ?: .64f)))
+    val glassLayer = backdrop ?: LocalGlassScene.current?.layer ?: ambientBackdrop
+    val useReference = Build.VERSION.SDK_INT >= 31 && dockBackdrop != null
+    val fill = if (dark) Color(0xFF121212) else Color(0xFFFAFAFA)
+    val rim = Brush.verticalGradient(listOf(Color.White.copy(alpha=if(dark).24f else .75f),Color.White.copy(alpha=.035f),Color.White.copy(alpha=.12f)))
+    Box(modifier.graphicsLayer { scaleX = 1f - .018f * compression; scaleY = 1f - .035f * compression }
+        .then(if (useReference) Modifier.clip(shape).referenceGlass(shape, dark, glassLayer, if (backdrop != null) contentOrigin else Offset.Zero, dockBackdrop, tintAlpha ?: .20f)
+            else Modifier.shadow(3.dp,shape).clip(shape).border(.5.dp,rim,shape))
+        .onGloballyPositioned { origin.value = if (screenPosition) it.positionOnScreen() else it.positionInRoot() }) {
+        if(!useReference) Box(Modifier.matchParentSize()) {
+            if(glassLayer!=null)GlassBackdrop(glassLayer,if(backdrop!=null)contentOrigin else Offset.Zero,origin,magnification=1f)
+            Box(Modifier.matchParentSize().background(fill.copy(alpha=if(Build.VERSION.SDK_INT>=31)tintAlpha ?: .20f else .9f)))
         }
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(0f to Color.White.copy(alpha = if (dark) .14f else .30f), .48f to Color.White.copy(alpha = .015f), 1f to Color.Transparent)))
         Box(Modifier.matchParentSize().drawBehind { drawRect(highlightColor.copy(alpha = highlight)) })
         CompositionLocalProvider(LocalGlassInteraction provides if (flexible) interaction else null) { content() }
     }
 }
 
 @Composable
-internal fun FloatingPlaybackDock(onHome: () -> Unit, onPlayer: () -> Unit, onLibrary: () -> Unit, onSearch: () -> Unit, dark: Boolean, dockBackdrop: DockGlassState) {
+internal fun FloatingPlaybackDock(destination: String, onDownloads: () -> Unit, onHome: () -> Unit, onPlayer: () -> Unit, onLibrary: () -> Unit, onSearch: () -> Unit, dark: Boolean, dockBackdrop: DockGlassState) {
     val dockState = remember { MusicPlayback.state.map { it.track to it.playing }.distinctUntilChanged() }
     val player by dockState.collectAsStateWithLifecycle(initialValue = remember { MusicPlayback.state.value.let { it.track to it.playing } })
     val track = player.first
     val dockHeight = maxOf(56.dp, with(LocalDensity.current) { 30.sp.toDp() } + 20.dp)
-    val tint = if (dark) .10f else .28f
-    Row(Modifier.fillMaxWidth().onGloballyPositioned { dockBackdrop.bounds = it.boundsInRoot() }.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).navigationBarsPadding().padding(horizontal = 12.dp, vertical = 8.dp).testTag("floating-playback-dock"), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-        GlassControlSurface(Modifier.size(54.dp), dark, dockBackdrop = dockBackdrop, tintAlpha = tint) {
-            GlassIconButton(Icons.Rounded.Home, "Home", onHome, Modifier.fillMaxSize().testTag("nav-Home"))
-        }
-        GlassControlSurface(Modifier.weight(1f).height(dockHeight).testTag("dock-glass-player"), dark, dockBackdrop = dockBackdrop, tintAlpha = tint) {
-            Row(Modifier.fillMaxSize().padding(start = 8.dp, end = 2.dp), verticalAlignment = Alignment.CenterVertically) {
-                Row(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(50)).glassTouch(onClick = if (track == null) onLibrary else onPlayer).testTag("music-mini-player"), verticalAlignment = Alignment.CenterVertically) {
-                    TrackArtwork(track, Modifier.size(40.dp))
-                    Column(Modifier.weight(1f).padding(horizontal = 8.dp)) {
-                        Text(track?.title ?: "Nothing playing", fontSize = 13.sp, lineHeight = 17.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Text(track?.artist ?: "Open Library", fontSize = 11.sp, lineHeight = 15.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    val tint = .40f
+    Column(Modifier.fillMaxWidth().onGloballyPositioned { dockBackdrop.bounds = it.boundsInRoot() }.windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).navigationBarsPadding().padding(horizontal = 19.dp, vertical = 6.dp).testTag("floating-playback-dock"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        if (track != null) GlassControlSurface(Modifier.fillMaxWidth().height(dockHeight).testTag("dock-glass-player"), dark, dockBackdrop = dockBackdrop, tintAlpha = tint) {
+            Row(Modifier.fillMaxSize().clipToBounds().padding(start=12.dp,end=4.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.weight(1f).fillMaxHeight().glassTouch(onPlayer).testTag("music-mini-player"), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).testTag("mini-player-artwork")) {TrackArtwork(track,Modifier.fillMaxSize())}
+                    Column(Modifier.weight(1f).padding(horizontal = 10.dp)) {
+                        Text(track.title, fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(track.artist, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                GlassIconButton(if (track == null) Icons.Rounded.LibraryMusic else if (player.second) Icons.Rounded.Pause else Icons.Rounded.PlayArrow,
-                    if (track == null) "Open Library" else if (player.second) "Pause" else "Play",
-                    if (track == null) onLibrary else MusicPlayback::toggle)
-
+                GlassIconButton(Icons.Rounded.SkipPrevious, "Previous track", MusicPlayback::previous)
+                GlassIconButton(if (player.second) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (player.second) "Pause" else "Play", MusicPlayback::toggle)
+                GlassIconButton(Icons.Rounded.SkipNext, "Next track", MusicPlayback::next)
             }
         }
-        GlassControlSurface(Modifier.size(54.dp), dark, dockBackdrop = dockBackdrop, tintAlpha = tint) {
-            GlassIconButton(Icons.Rounded.Search, "Search local music", onSearch, Modifier.fillMaxSize().testTag("nav-Search"))
+        GlassControlSurface(Modifier.fillMaxWidth().heightIn(min = 62.dp), dark, dockBackdrop = dockBackdrop, tintAlpha = tint, flexible = false) {
+            BoxWithConstraints(Modifier.fillMaxWidth().padding(4.dp)) {
+                val tabs = listOf(Triple("Home", Icons.Rounded.Home, onHome), Triple("Downloads", Icons.Rounded.Download, onDownloads), Triple("Library", Icons.Rounded.LibraryMusic, onLibrary), Triple("Search", Icons.Rounded.Search, onSearch))
+                val selectedIndex = tabs.indexOfFirst { it.first == destination }
+                val width = (maxWidth - 18.dp) / 4
+                val target = (width + 6.dp) * selectedIndex.coerceAtLeast(0)
+                val position by animateDpAsState(target, spring(dampingRatio = .68f, stiffness = 420f), label = "Liquid tab travel")
+                val lag = (kotlin.math.abs((target - position).value) / width.value.coerceAtLeast(1f)).coerceIn(0f, 1f)
+                if (selectedIndex >= 0) Box(Modifier.offset(x = position).width(width).height(54.dp).graphicsLayer {
+                    scaleX = 1f + lag * .18f; scaleY = 1f - lag * .09f
+                }.testTag("nav-selection").clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = if(dark) .14f else .5f)).border(.5.dp, Color.White.copy(alpha = .12f), RoundedCornerShape(50)))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    tabs.forEach { (label, icon, action) ->
+                        val active = destination == label
+                        val ink = (if(dark) Color.White else Color.Black).copy(alpha = if(active) 1f else .65f)
+                        Column(Modifier.weight(1f).clip(RoundedCornerShape(50)).semantics { selected = active }.glassTouch(action).padding(vertical = 5.dp).testTag("nav-$label"), horizontalAlignment = Alignment.CenterHorizontally) {
+                            Icon(icon, label, Modifier.size(28.dp), tint = ink)
+                            Text(if (label == "Downloads") "Saved" else label, fontSize = 11.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = ink)
+                        }
+                    }
+                }
+            }
         }
     }
 }
@@ -230,10 +252,16 @@ internal fun PairedGlassActions(onAdd: () -> Unit, onMore: () -> Unit, addLabel:
     GlassControlSurface(Modifier.height(48.dp).testTag("paired-glass-actions"),
         backdrop = backdrop ?: scene?.layer,
         contentOrigin = if (backdrop == null) scene?.origin ?: contentOrigin else contentOrigin) {
-        // Two accessible touch targets, one continuous material and one shared press response.
+        // Aligned header actions share a single glass capsule and consistent touch targets.
         Row(Modifier.padding(horizontal = 3.dp)) {
             GlassIconButton(Icons.Rounded.Add, addLabel, onAdd, glyph = 22.dp)
-            Box(Modifier.width(.7.dp).height(22.dp).align(Alignment.CenterVertically).background(Color.White.copy(alpha = .12f)))
+            Box(Modifier.width(.5.dp).height(20.dp).align(Alignment.CenterVertically).background(Color.White.copy(alpha = .10f)))
+            LocalAccountAction.current?.let { account ->
+                Box(Modifier.size(48.dp).clip(RoundedCornerShape(50)).glassTouch(account).testTag("account-avatar").semantics {contentDescription="Account"},contentAlignment=Alignment.Center) {
+                    Box(Modifier.size(30.dp).clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.onSurface.copy(alpha=.06f)),contentAlignment=Alignment.Center) {Icon(Icons.Rounded.AccountCircle,null,Modifier.size(28.dp),tint=MaterialTheme.colorScheme.onSurface.copy(alpha=.88f))}
+                }
+                Box(Modifier.width(.5.dp).height(20.dp).align(Alignment.CenterVertically).background(Color.White.copy(alpha=.10f)))
+            }
             GlassIconButton(Icons.Rounded.MoreHoriz, moreLabel, onMore, glyph = 22.dp)
         }
     }

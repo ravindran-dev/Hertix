@@ -30,12 +30,13 @@ import androidx.compose.ui.unit.sp
     }
 }
 
-@Composable internal fun PlayerActionRow(onLyrics: () -> Unit, onQueue: () -> Unit, onTimer: () -> Unit, onOutput: () -> Unit, onMore: () -> Unit) {
-    val actions = listOf(Triple("Lyrics", Icons.Rounded.Lyrics, onLyrics), Triple("Add to Queue", Icons.Rounded.PlaylistAdd, onQueue), Triple("Sleep Timer", Icons.Rounded.Schedule, onTimer), Triple("Audio output", Icons.Rounded.DevicesOther, onOutput), Triple("More", Icons.Rounded.MoreHoriz, onMore))
+@Composable internal fun PlayerActionRow(onLyrics: () -> Unit, onQueue: () -> Unit, onOutput: () -> Unit) {
+    val actions = listOf(Triple("Lyrics", Icons.Rounded.Lyrics, onLyrics), Triple("Output", Icons.Rounded.DevicesOther, onOutput), Triple("Queue", Icons.Rounded.QueueMusic, onQueue))
     Row(Modifier.fillMaxWidth()) {
         actions.forEach { (label, icon, action) ->
-            Column(Modifier.weight(1f).height(48.dp).glassTouch(action), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Column(Modifier.weight(1f).height(60.dp).glassTouch(action), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Icon(icon, label, Modifier.size(23.dp))
+                Text(label, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
             }
         }
     }

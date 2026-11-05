@@ -38,16 +38,17 @@ fun AccountScreen(onCloudLibrary: () -> Unit = {}) {
     fun action(block: suspend ()->Unit) { scope.launch { busy=true;message="";try { block() } catch(e: Exception) { message=e.message ?: "Request failed" } finally {busy=false;password=""} } }
     LaunchedEffect(account.status) { if(account.status=="Account recovery") mode="New password" }
     Box(Modifier.fillMaxSize(),contentAlignment=Alignment.TopCenter) {
-    Surface(modifier=Modifier.widthIn(max=520.dp).fillMaxSize(),color=MaterialTheme.colorScheme.background.copy(alpha=.58f)) {
+    Surface(modifier=Modifier.widthIn(max=520.dp).fillMaxSize(),color=androidx.compose.ui.graphics.Color.Transparent) {
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
         Column(Modifier.fillMaxWidth().padding(vertical=12.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(10.dp)) {
             Icon(Icons.Outlined.Cloud,null,Modifier.size(32.dp),tint=MaterialTheme.colorScheme.primary)
             Text("Your music, anywhere",style=MaterialTheme.typography.titleLarge)
-            Text("Sync your library. Keep your music offline.",style=MaterialTheme.typography.bodySmall,textAlign=TextAlign.Center,color=MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Offline on your phone. Online in your account.",style=MaterialTheme.typography.bodySmall,textAlign=TextAlign.Center,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        LocalLibraryBackup()
         if(!CloudAccount.configured) {
-            Text("Cloud setup required",style=MaterialTheme.typography.titleLarge)
-            Text("This build has no Supabase connection configured. Follow docs/development-setup.md and rebuild. Downloading and local playback are available in guest mode.")
+            Text("Cloud unavailable",style=MaterialTheme.typography.titleLarge)
+            Text("Cloud accounts are unavailable in this build. Your local library, backups and downloads are available.")
         } else if(account.userId!=null && mode!="New password") {
             AccountGroup {
             Text("YOUR ACCOUNT",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
@@ -55,43 +56,7 @@ fun AccountScreen(onCloudLibrary: () -> Unit = {}) {
             Text("${if(account.verified) "Email verified" else "Verification pending"} · ${account.status}")
             }
             Spacer(Modifier.height(8.dp))
-            AccountGroup {
-            Text("Cloud & Sync",style=MaterialTheme.typography.titleLarge)
-            Row(verticalAlignment=Alignment.CenterVertically) { Text("Sync library metadata",Modifier.weight(1f));Switch(sync.enabled,{CloudSync.configure(enabled=it)}) }
-            Text("Sync song details across devices. Audio uploads stay manual.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(verticalAlignment=Alignment.CenterVertically) { Text("Playlists",Modifier.weight(1f));Switch(sync.playlists,{CloudSync.configure(playlists=it)}) }
-            Row(verticalAlignment=Alignment.CenterVertically) { Text("Favorites",Modifier.weight(1f));Switch(sync.favorites,{CloudSync.configure(favorites=it)}) }
-            Row(verticalAlignment=Alignment.CenterVertically) { Text("Player preferences",Modifier.weight(1f));Switch(sync.preferences,{CloudSync.configure(preferences=it)}) }
-            Text(sync.status)
-            sync.lastSync?.let { Text("Updated " + runCatching { java.time.Instant.parse(it).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("d MMM, h:mm a")) }.getOrDefault("recently"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant) }
-            if(sync.status == "Sync failed") OutlinedButton(onClick={CloudSync.retry()},enabled=sync.enabled) { Text("Try again") }
-            if(sync.queue.isNotEmpty() && sync.status != "Sync failed") Text("${sync.queue.size} changes waiting to sync",style=MaterialTheme.typography.bodySmall)
-            sync.queue.filter { it.status == "conflict" }.forEach { op ->
-                if(op.status=="conflict") { Text("Changed on another device. Choose which edit to keep.");Row { TextButton(onClick={CloudSync.resolve(op.operation_id,false)}) {Text("Use remote")};TextButton(onClick={CloudSync.resolve(op.operation_id,true)}) {Text("Use mine")} } }
-            }
-            }
-            Spacer(Modifier.height(8.dp))
-            AccountGroup {
-            var externalStorage by remember {mutableStateOf(DownloadStore.cloudExternalStorage)}
-            Row(verticalAlignment=Alignment.CenterVertically) {Text("Use external app storage",Modifier.weight(1f));Switch(externalStorage,{externalStorage=it;DownloadStore.cloudExternalStorage=it})}
-            Text("Applies to new downloads. Existing files stay in their current location.",style=MaterialTheme.typography.bodySmall)
-            var reserve by remember {mutableStateOf(DownloadStore.cloudStorageReserveMb)}
-            Text("Keep $reserve MB of storage free",style=MaterialTheme.typography.bodySmall)
-            Slider(value=reserve.toFloat(),onValueChange={reserve=it.toInt();DownloadStore.cloudStorageReserveMb=reserve},valueRange=16f..512f)
-            var wifiOnly by remember {mutableStateOf(DownloadStore.cloudWifiOnly)}
-            var concurrency by remember {mutableStateOf(DownloadStore.cloudConcurrency)}
-            Row(verticalAlignment=Alignment.CenterVertically) {Text("Download over Wi-Fi only",Modifier.weight(1f));Switch(wifiOnly,{wifiOnly=it;DownloadStore.cloudWifiOnly=it})}
-            Text("Cloud download slots: $concurrency",style=MaterialTheme.typography.bodySmall)
-            Slider(value=concurrency.toFloat(),onValueChange={concurrency=it.toInt();DownloadStore.cloudConcurrency=concurrency},valueRange=1f..3f,steps=1)
-            var autoRetry by remember {mutableStateOf(DownloadStore.cloudAutoRetry)}
-            Row(verticalAlignment=Alignment.CenterVertically) {Text("Retry interrupted transfers",Modifier.weight(1f));Switch(autoRetry,{autoRetry=it;DownloadStore.cloudAutoRetry=it})}
-            Text("Cloud downloads share the Downloads concurrency setting and save to app-managed storage.",style=MaterialTheme.typography.bodySmall)
-            MusicActionRow("Cloud library",Icons.Outlined.LibraryMusic,onCloudLibrary,subtitle="Browse songs and download to this device",forward=true)
-            Text("Synchronized songs and playlists appear in Library. Tracks without a file on this phone remain unavailable for playback.")
-            Text("${sync.rows["library_items"].orEmpty().count { it.get("deleted_at")?.isJsonNull!=false }} synchronized songs")
-            }
-            Spacer(Modifier.height(8.dp))
-            AccountGroup { CloudFilesSection() }
+            AccountGroup { BackupSettingsPanel(onCloudLibrary); BackupConflictReview() }
             Spacer(Modifier.height(8.dp))
             AccountGroup {
             AccountExportButton()
@@ -132,7 +97,7 @@ fun AccountScreen(onCloudLibrary: () -> Unit = {}) {
         }
         if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.primary)
         if(account.message.isNotBlank()) Text(account.message)
-        Spacer(Modifier.height(110.dp))
+        Spacer(Modifier.height(LocalMusicBottomPadding.current + 20.dp))
     }
     }
     }
