@@ -166,11 +166,14 @@ object CloudAccount {
             connection.setRequestProperty("Content-Type", "application/json")
             if(token != null) connection.setRequestProperty("Authorization", "Bearer $token")
             if(body != null) { connection.doOutput = true; connection.outputStream.use { it.write(body.toString().toByteArray()) } }
-            if(connection.responseCode !in 200..299) throw CloudHttpException(connection.responseCode)
+            if(connection.responseCode !in 200..299) {
+                val detail = runCatching { (connection.errorStream?.bufferedReader()?.use { it.readText() } ?: "").let { JsonParser.parseString(it).asJsonObject.get("error")?.asString } }.getOrNull()
+                throw CloudHttpException(connection.responseCode, detail)
+            }
             val text = connection.inputStream.bufferedReader().use { it.readText() }
             if(text.isBlank()) JsonObject() else JsonParser.parseString(text)
         } finally { connection.disconnect() }
     }
 }
-class CloudHttpException(val status: Int): java.io.IOException("Cloud request failed ($status). Retry when connected.")
+class CloudHttpException(val status: Int, detail: String? = null): java.io.IOException(detail?.take(240) ?: "Cloud request failed ($status). Retry when connected.")
 fun json(vararg entries: Pair<String, String>) = JsonObject().apply { entries.forEach { (key,value) -> addProperty(key,value) } }

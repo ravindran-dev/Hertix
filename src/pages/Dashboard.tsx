@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   ArrowRight,
   Link,
@@ -19,6 +19,7 @@ import { useApp, perform } from "../stores/app";
 import type { Media } from "../types";
 import { validateUrl, active, bytes, time, today } from "../utils/media";
 import { JobList } from "../components/Common";
+import { requireCloud } from "../account/client";
 export default function Dashboard({
   onSelect,
 }: {
@@ -34,6 +35,26 @@ export default function Dashboard({
   const [audio, setAudio] = useState(settings?.audioQuality || "320");
   const [video, setVideo] = useState(settings?.videoQuality || "best");
   const [playlist, setPlaylist] = useState(true);
+  const [discoveryQuery, setDiscoveryQuery] = useState("");
+  const [discovery, setDiscovery] = useState<any[]>([]);
+  const [searchBusy, setSearchBusy] = useState(false);
+  const [searchError, setSearchError] = useState("");
+  const [searchType, setSearchType] = useState("all");
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout>;
+    const query = discoveryQuery.trim();
+    if (query.length < 2) { setDiscovery([]); return () => clearTimeout(timer); }
+    timer = setTimeout(() => {
+      const controller = new AbortController();
+      setSearchBusy(true); setSearchError("");
+      requireCloud().functions.invoke("youtube-discovery", { body: { q: query, type: searchType } })
+        .then(({data,error}) => { if (controller.signal.aborted) return; if (error) throw error; setDiscovery(data.items || []); })
+        .catch((e) => { if (!controller.signal.aborted) { setDiscovery([]); setSearchError(e.message || "Search failed"); } })
+        .finally(() => { if (!controller.signal.aborted) setSearchBusy(false); });
+      return () => controller.abort();
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [discoveryQuery, searchType]);
   const [zip, setZip] = useState(settings?.autoZip || false);
   const [order, setOrder] = useState(settings?.preserveOrder ?? true);
   const jobs = db?.jobs || [];
@@ -155,6 +176,21 @@ export default function Dashboard({
               {!analyzing && <ArrowRight size={15} />}
             </button>
           </div>
+          <label className="field-label spaced" htmlFor="youtube-discovery">Search YouTube</label>
+          <input id="youtube-discovery" value={discoveryQuery} placeholder="Search songs, artists, videos or playlists…"
+            onChange={e => setDiscoveryQuery(e.target.value)} />
+          <select aria-label="YouTube result type" value={searchType} onChange={e => setSearchType(e.target.value)}>
+            {["all", "songs", "videos", "artists", "playlists", "channels"].map(x => <option key={x} value={x}>{x}</option>)}
+          </select>
+          {searchBusy && <p>Searching YouTube…</p>}
+          {searchError && <p role="alert">{searchError}</p>}
+          {discovery.map((result: any) => <div className="analysis-result" key={`${result.type}:${result.id}`}>
+            {result.thumbnail && <img src={result.thumbnail} alt="" referrerPolicy="no-referrer" />}
+            <div><strong>{result.title}</strong><p>{result.type} · {result.channel}</p>
+              <small>Metadata only · download availability not verified</small>
+              <a href={result.source_url} target="_blank" rel="noreferrer">Open on YouTube</a>
+            </div>
+          </div>)}
           {media && (
             <div className="analysis-result">
               {media.thumbnail && (

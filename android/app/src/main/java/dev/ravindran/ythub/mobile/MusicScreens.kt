@@ -87,6 +87,7 @@ private val MusicShape = MobileUi.card
     val state by libraryFlow.collectAsStateWithLifecycle(initialValue = remember { MusicRepository.state.value })
     val scanning by MusicRepository.scanning.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val listState = rememberLazyListState()
     val pageScroll = LocalPageScroll.current
     val dock=LocalDockGlass.current
@@ -97,6 +98,10 @@ private val MusicShape = MobileUi.card
     val focusManager = LocalFocusManager.current
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
+    var youtubeMode by rememberSaveable { mutableStateOf(false) }
+    var youtubeResults by remember { mutableStateOf<List<YouTubeResult>>(emptyList()) }
+    var youtubeError by remember { mutableStateOf("") }
+    var downloadingYouTube by remember { mutableStateOf<String?>(null) }
     var category by rememberSaveable { mutableStateOf("Overview") }
     var sort by rememberSaveable { mutableStateOf("Recently added") }
     var source by rememberSaveable { mutableStateOf("All sources") }
@@ -133,6 +138,10 @@ private val MusicShape = MobileUi.card
     var previousSection by rememberSaveable { mutableStateOf("$category:$playlistId:$group") }
     LaunchedEffect(category, playlistId, group) { pageScroll?.reset(); val section = "$category:$playlistId:$group"; if (section != previousSection) { listState.scrollToItem(0); previousSection = section } }
     LaunchedEffect(searching) { onSearchChanged(searching); if (searching) { listState.scrollToItem(0); withFrameNanos { }; searchFocus.requestFocus() } }
+    LaunchedEffect(query, youtubeMode) {
+        if (!youtubeMode || query.trim().length < 2) { youtubeResults = emptyList(); youtubeError = "" }
+        else try { youtubeResults = searchYouTube(query.trim()); youtubeError = "" } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { youtubeError = e.message ?: "YouTube search failed" }
+    }
     val sectionReveal = remember { Animatable(1f) }
     LaunchedEffect(playlistId, group, category, searching) {
         onDetailChanged(playlistId != null || group != null || category != "Overview" && !searching)
@@ -140,6 +149,23 @@ private val MusicShape = MobileUi.card
     }
     fun libraryBack() {
         when { playlistId != null -> playlistId = null; group != null -> group = null; searching -> { searching = false; query = "" }; else -> category = "Overview" }
+    }
+    fun enqueueYouTubeAudio(result: YouTubeResult) {
+        if (downloadingYouTube != null) return
+        downloadingYouTube = result.id
+        scope.launch {
+            try {
+                val media = DownloadStore.analyze(result.url, false)
+                val id = DownloadStore.enqueue(media, true, DownloadStore.prefs.value.audioQuality)
+                onDownload(id)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                MusicRepository.message.value = error.message ?: "Could not add this item to downloads"
+            } finally {
+                downloadingYouTube = null
+            }
+        }
     }
     BackHandler(enabled = playlistId != null || group != null || searching || category != "Overview", onBack = ::libraryBack)
     val allById = remember(state.tracks) { state.tracks.associateBy { it.id } }
@@ -217,12 +243,46 @@ private val MusicShape = MobileUi.card
                     IconButton(onClick = { query = ""; searching = false; selected = emptySet(); keyboard?.hide(); focusManager.clearFocus() }) { Icon(Icons.Rounded.Close, "Close music search", Modifier.size(20.dp)) }
                 } }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { keyboard?.hide(); focusManager.clearFocus() }))
+            if (searching) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                listOf("Offline", "YouTube").forEach { mode -> FilterChip(selected = youtubeMode == (mode == "YouTube"), onClick = { youtubeMode = mode == "YouTube" }, label = { Text(mode) }) }
+            }
 
             }
         }
         if (searching && searchQuery.isNotBlank()) {
+            if (youtubeMode) {
+                if (youtubeError.isNotBlank()) item { Text(youtubeError, color = MaterialTheme.colorScheme.error) }
+                itemsIndexed(youtubeResults, key = { _, r -> "youtube-${r.type}-${r.id}" }) { _, result ->
+                    GlassControlSurface(Modifier.fillMaxWidth().padding(vertical = 5.dp), shape = RoundedCornerShape(20.dp), flexible = false, tintAlpha = .32f) {
+                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Box(Modifier.size(84.dp, 64.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
+                                    AsyncImage(result.thumbnail, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                                    Surface(Modifier.align(Alignment.BottomStart).padding(4.dp), color = Color.Black.copy(alpha = .72f), shape = RoundedCornerShape(6.dp)) {
+                                        Text(result.type.uppercase(), Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = Color.White, maxLines = 1)
+                                    }
+                                }
+                                Column(Modifier.weight(1f).padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                    Text(result.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 19.sp)
+                                    Text(result.channel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text("YouTube · online", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                }
+                            }
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(onClick = { openYouTubeLink(context, result.url) }, modifier = Modifier.weight(1f).heightIn(min = 46.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)) {
+                                    Icon(Icons.Rounded.OpenInNew, null, Modifier.size(17.dp)); Spacer(Modifier.width(6.dp)); Text("Open", maxLines = 1, softWrap = false)
+                                }
+                                if (result.type == "video") Button(onClick = { enqueueYouTubeAudio(result) }, modifier = Modifier.weight(1f).heightIn(min = 46.dp), enabled = downloadingYouTube == null, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)) {
+                                    Icon(Icons.Rounded.Download, null, Modifier.size(17.dp)); Spacer(Modifier.width(6.dp)); Text(if (downloadingYouTube == result.id) "Preparing" else "Download", maxLines = 1, softWrap = false)
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
             itemsIndexed(state.playlists.filter { it.name.contains(searchQuery, true) }, key = { _, p -> "search-playlist-${p.id}" }) { _, p ->
                 PlaylistArtworkRow(p, state.tracks) { searching = false; query = ""; category = "Playlists"; playlistId = p.id }
+            }
             }
         }
         if (category == "Overview") {
