@@ -117,7 +117,9 @@ mod tests {
         let cancel = CancellationToken::new();
         let signal = cancel.clone();
         let mut pid = 0;
-        let result = run(c, &cancel, vec![], 0, Duration::from_secs(10), |line| {
+        // Cold PowerShell startup can exceed ten seconds on busy Windows hosts.
+        // Keep the cancellation assertion unchanged; allow the fixture to start.
+        let result = run(c, &cancel, vec![], 0, Duration::from_secs(60), |line| {
             if let Some(id) = line
                 .strip_prefix("CHILD:")
                 .and_then(|s| s.parse::<u32>().ok())

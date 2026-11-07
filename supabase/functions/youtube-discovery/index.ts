@@ -16,6 +16,14 @@ const searchTypes: Record<string, string> = {
 };
 const cache = new Map<string, { expires: number; value: unknown }>();
 const requests = new Map<string, { start: number; count: number }>();
+type YouTubeItem = {
+  id?: { videoId?: string; playlistId?: string; channelId?: string };
+  snippet?: {
+    title?: string;
+    channelTitle?: string;
+    thumbnails?: { medium?: { url?: string }; default?: { url?: string } };
+  };
+};
 
 Deno.serve(async (request) => {
   if (request.method === 'OPTIONS') return new Response('', { headers: cors });
@@ -62,8 +70,8 @@ Deno.serve(async (request) => {
       if (response.status === 403) return respond(429, { error: `YouTube API rejected the request (${reason}): ${message}` });
       return respond(502, { error: `YouTube API request failed (${response.status}, ${reason}): ${message}` });
     }
-    const raw = await response.json();
-    const items = (raw.items || []).flatMap((item: any) => {
+    const raw = await response.json() as { items?: YouTubeItem[]; nextPageToken?: string };
+    const items = (raw.items || []).flatMap((item) => {
       const id = item.id?.videoId || item.id?.playlistId || item.id?.channelId;
       if (!id) return [];
       const mediaType = item.id?.videoId ? 'video' : item.id?.playlistId ? 'playlist' : 'channel';

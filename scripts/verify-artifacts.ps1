@@ -11,7 +11,7 @@ if ((Get-Item -LiteralPath $taskRelease).LastWriteTime -lt $taskLatestSource.Las
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $taskArchive = [System.IO.Compression.ZipFile]::OpenRead($taskZip)
 try {
-    foreach ($taskName in @('YTHub.exe','binaries/yt-dlp.exe','binaries/ffmpeg.exe','binaries/ffprobe.exe','binaries/deno.exe','binaries/manifest.json','LICENSE','THIRD_PARTY_NOTICES.md','README.md')) {
+    foreach ($taskName in @('YTHub.exe','binaries/yt-dlp.exe','binaries/ffmpeg.exe','binaries/ffprobe.exe','binaries/deno.exe','binaries/whisper-cli.exe','binaries/whisper.dll','binaries/ggml.dll','binaries/ggml-base.dll','binaries/whisper-LICENSE.txt','binaries/manifest.json','LICENSE','THIRD_PARTY_NOTICES.md','README.md')) {
         $taskEntry = $taskArchive.Entries | Where-Object { $_.FullName.Replace('\','/') -eq $taskName } | Select-Object -First 1
         if ($null -eq $taskEntry -or $taskEntry.Length -eq 0) { throw "Missing or empty ZIP resource: $taskName" }
         if ($taskName.EndsWith('.exe')) {

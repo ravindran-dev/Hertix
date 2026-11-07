@@ -1,6 +1,6 @@
 [package]
 name = "ythub"
-version = "1.0.0"
+version = "1.1.0"
 description = "Your YouTube Media Hub"
 authors = ["Ravindran"]
 edition = "2021"
@@ -10,7 +10,7 @@ license = "MIT"
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = ["tray-icon"] }
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-notification = "2"
 tauri-plugin-autostart = "2"
@@ -30,6 +30,7 @@ zip = { version = "2", default-features = false, features = ["deflate"] }
 fs2 = "0.4"
 dirs = "6"
 sha2 = "0.10"
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "stream"] }
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service"] }
 
 [target.'cfg(windows)'.dependencies]
@@ -38,3 +39,9 @@ windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_System_
 [dev-dependencies]
 tempfile = "3"
 tauri = { version = "2", features = ["test"] }
+
+# Media codecs and ZIP dependencies retain full release optimization. Keep the
+# application/IPC layer inexpensive to compile; processing runs in those engines.
+[profile.release.package.ythub]
+opt-level = 1
+codegen-units = 256

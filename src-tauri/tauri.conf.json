@@ -1,12 +1,53 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "YTHub",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "identifier": "dev.ravindran.ythub",
-  "build": { "beforeDevCommand": "npm run dev", "devUrl": "http://127.0.0.1:1420", "beforeBuildCommand": "npm run build", "frontendDist": "../dist" },
-  "app": {
-    "windows": [{ "title": "YTHub — Your YouTube Media Hub", "width": 1280, "height": 820, "minWidth": 920, "minHeight": 640 }],
-    "security": { "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost https://*.ytimg.com https://*.ggpht.com data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost https://*.supabase.co wss://*.supabase.co; object-src 'none'; frame-src 'none'" }
+  "build": {
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build",
+    "frontendDist": "../dist"
   },
-  "bundle": { "active": true, "targets": ["nsis"], "resources": {"binaries/":"binaries/", "../THIRD_PARTY_NOTICES.md":"THIRD_PARTY_NOTICES.md", "../LICENSE":"LICENSE"}, "icon": ["icons/icon.ico"], "shortDescription": "Your YouTube Media Hub", "copyright": "Copyright © 2026 Ravindran", "windows": { "nsis": { "displayLanguageSelector": false, "compression":"zlib" } } }
+  "app": {
+    "windows": [
+      {
+        "title": "YTHub \u2014 Your YouTube Media Hub",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 920,
+        "minHeight": 640,
+        "create": false
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost https://*.ytimg.com https://*.ggpht.com data:; style-src 'self' 'unsafe-inline'; connect-src ipc: http://ipc.localhost https://*.supabase.co wss://*.supabase.co; object-src 'none'; frame-src 'none'; media-src 'self' asset: http://asset.localhost blob:",
+      "assetProtocol": {
+        "enable": true,
+        "scope": []
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": [
+      "nsis"
+    ],
+    "resources": {
+      "binaries/": "binaries/",
+      "../THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
+      "../LICENSE": "LICENSE"
+    },
+    "icon": [
+      "icons/icon.ico"
+    ],
+    "shortDescription": "Your YouTube Media Hub",
+    "copyright": "Copyright \u00a9 2026 Ravindran",
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": false,
+        "compression": "zlib"
+      }
+    }
+  }
 }

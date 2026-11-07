@@ -349,6 +349,92 @@ pub async fn analyze(
     }
     Ok(result)
 }
+
+pub async fn search(
+    app: &AppHandle,
+    s: &Settings,
+    query: &str,
+    kind: &str,
+) -> Result<Value, String> {
+    let query = query
+        .trim()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    if query.chars().count() < 2 || query.chars().count() > 100 {
+        return Err("Enter a search between 2 and 100 characters.".into());
+    }
+    let search_query = match kind {
+        "all" | "videos" => query,
+        "songs" => format!("{query} official audio"),
+        "artists" | "channels" => format!("{query} artist"),
+        "playlists" => {
+            return Err(
+                "Playlist search is not supported by the local YouTube search engine.".into(),
+            )
+        }
+        _ => return Err("Unsupported search category.".into()),
+    };
+    let path = resolve(app, s, "yt-dlp")?;
+    let mut args = network_args(s);
+    if let Ok(deno) = resolve(app, s, "deno") {
+        args.extend([
+            "--js-runtimes".into(),
+            format!("deno:{}", deno.to_string_lossy()),
+        ]);
+    }
+    args.extend([
+        "--dump-single-json".into(),
+        "--skip-download".into(),
+        "--flat-playlist".into(),
+        "--playlist-end".into(),
+        "20".into(),
+        "--".into(),
+        format!("ytsearch20:{search_query}"),
+    ]);
+    let output = tokio::time::timeout(
+        std::time::Duration::from_secs(45),
+        output_guarded(command(path).args(args)),
+    )
+    .await
+    .map_err(|_| "YouTube search timed out. Check your network and try again.".to_string())?
+    .map_err(|e| format!("Cannot start YouTube search: {e}"))?;
+    if !output.status.success() {
+        return Err(redact(&String::from_utf8_lossy(&output.stderr), s));
+    }
+    let value: Value = serde_json::from_slice(&output.stdout)
+        .map_err(|e| format!("Invalid search results returned by YouTube: {e}"))?;
+    let entries = value["entries"].as_array().cloned().unwrap_or_default();
+    let items = entries
+        .into_iter()
+        .filter_map(|entry| {
+            let id = entry["id"].as_str()?.to_owned();
+            let title = entry["title"].as_str().unwrap_or("Untitled").to_owned();
+            let channel = entry["channel"]
+                .as_str()
+                .or_else(|| entry["uploader"].as_str())
+                .unwrap_or("")
+                .to_owned();
+            let thumbnail = entry["thumbnail"]
+                .as_str()
+                .or_else(|| entry["thumbnails"].as_array()?.last()?.get("url")?.as_str())
+                .unwrap_or("")
+                .to_owned();
+            let duration_seconds = entry["duration"].as_f64();
+            Some(serde_json::json!({
+                "id": id,
+                "type": "video",
+                "title": title,
+                "artist": channel,
+                "channel": channel,
+                "thumbnail": thumbnail,
+                "source_url": format!("https://www.youtube.com/watch?v={id}"),
+                "duration_seconds": duration_seconds,
+            }))
+        })
+        .collect::<Vec<_>>();
+    Ok(serde_json::json!({ "items": items, "nextPageToken": null }))
+}
 pub fn parse_progress(line: &str) -> Option<Value> {
     line.strip_prefix("YTHUB_PROGRESS:")
         .and_then(|s| serde_json::from_str(s).ok())

@@ -48,8 +48,6 @@ pub fn args(job: &Job, stage: &StagedMedia, target: &Path) -> Result<Vec<String>
                 format!("{index}:v:0"),
                 "-c:v".into(),
                 "mjpeg".into(),
-                "-frames:v".into(),
-                "1".into(),
                 "-disposition:v".into(),
                 "attached_pic".into(),
             ]);
@@ -204,14 +202,29 @@ async fn validate(
     let streams = value["streams"]
         .as_array()
         .ok_or("Corrupt output: no streams")?;
-    let audio = streams.iter().any(|s| s["codec_type"] == "audio");
+    // ID3 cover art is represented as a video stream, and malformed MP3s can
+    // contain a few milliseconds of silent audio. Neither is a playable song.
+    let audio = streams.iter().any(|s| {
+        s["codec_type"] == "audio" && s["disposition"]["attached_pic"].as_u64() != Some(1)
+    });
     let video = streams.iter().any(|s| s["codec_type"] == "video");
     let duration = value["format"]["duration"]
         .as_str()
         .and_then(|s| s.parse::<f64>().ok())
         .unwrap_or(0.0);
-    if !audio || (job.media_type == "video" && !video) || !duration.is_finite() || duration <= 0.0 {
-        return Err("Corrupt output: required media streams or duration missing".into());
+    if !duration.is_finite() || duration <= 0.0 {
+        return Err("Corrupt output: media duration is missing".into());
+    }
+    if job.media_type == "audio" && !audio {
+        return Err(
+            "Corrupt output: no playable audio stream was found (thumbnail-only file)".into(),
+        );
+    }
+    if job.media_type == "audio" && duration < 0.5 {
+        return Err("Corrupt output: audio is shorter than half a second".into());
+    }
+    if job.media_type == "video" && !video {
+        return Err("Corrupt output: no playable video stream was found".into());
     }
     Ok(())
 }

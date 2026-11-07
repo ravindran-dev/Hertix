@@ -19,6 +19,21 @@ pub struct Store {
     fingerprints: Mutex<HashMap<String, u64>>,
 }
 impl Store {
+    pub fn music(&self) -> Result<Option<String>, String> {
+        use rusqlite::OptionalExtension;
+        self.sql
+            .lock()
+            .unwrap()
+            .query_row("SELECT data FROM state WHERE name='music-v1'", [], |r| {
+                r.get(0)
+            })
+            .optional()
+            .map_err(|e| e.to_string())
+    }
+    pub fn save_music(&self, data: &str) -> Result<(), String> {
+        self.sql.lock().unwrap().execute("INSERT INTO state(name,data) VALUES('music-v1',?1) ON CONFLICT(name) DO UPDATE SET data=excluded.data", [data]).map_err(|e|e.to_string())?;
+        Ok(())
+    }
     pub fn load(root: PathBuf) -> Result<Self, String> {
         fs::create_dir_all(&root).map_err(|e| e.to_string())?;
         let path = root.join("state.json");

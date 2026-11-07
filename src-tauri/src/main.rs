@@ -1,16 +1,17 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+mod account;
 mod archive;
 mod desktop;
 mod download;
 mod engine;
 mod errors;
 mod filesystem;
+mod library;
 mod manager;
 mod models;
 mod playlist;
 mod process;
 mod storage;
-mod account;
 use errors::AppError;
 use manager::Manager as DownloadManager;
 use models::*;
@@ -84,6 +85,18 @@ async fn analyze_url(
 ) -> Result<Media, AppError> {
     state
         .analyze(&app, &url, playlist)
+        .await
+        .map_err(Into::into)
+}
+#[tauri::command]
+async fn search_youtube(
+    app: tauri::AppHandle,
+    state: State<'_, AppState>,
+    query: String,
+    kind: String,
+) -> Result<serde_json::Value, AppError> {
+    let settings = state.store.db.lock().unwrap().settings.clone();
+    engine::search(&app, &settings, &query, &kind)
         .await
         .map_err(Into::into)
 }
@@ -443,8 +456,22 @@ fn main() {
                 .build(),
         )
         .setup(|app| {
-            let root = app.path().app_data_dir()?;
+            let isolated = std::env::var_os("YTHUB_DATA_DIR").map(PathBuf::from);
+            if isolated.as_ref().is_some_and(|p| !p.is_absolute()) {
+                return Err("YTHUB_DATA_DIR must be an absolute path".into());
+            }
+            let root = isolated.clone().unwrap_or(app.path().app_data_dir()?);
             let store = storage::Store::load(root).map_err(std::io::Error::other)?;
+            let artwork = store.root.join("Artwork");
+            std::fs::create_dir_all(&artwork)?;
+            app.asset_protocol_scope()
+                .allow_directory(&artwork, false)?;
+            let config = app.config().app.windows[0].clone();
+            let mut window = tauri::WebviewWindowBuilder::from_config(app, &config)?;
+            if isolated.is_some() {
+                window = window.data_directory(store.root.join("WebView"));
+            }
+            window.build()?;
             store.log("YTHub started");
             let s = store.db.lock().unwrap().settings.clone();
             for folder in [&s.download_dir, &s.temp_dir, &s.zip_dir] {
@@ -523,7 +550,18 @@ fn main() {
             }
         })
         .invoke_handler(tauri::generate_handler![
-            account::account_secret_read, account::account_secret_write, account::cloud_media_available, account::cloud_media_save,
+            account::account_secret_read,
+            account::account_secret_write,
+            account::cloud_media_available,
+            account::cloud_media_save,
+            library::load_music,
+            library::save_music,
+            library::audio_gain,
+            library::open_audio_folder,
+            library::extract_audio_zip,
+            library::prepare_audio,
+            library::transcribe_lyrics,
+            library::delete_audio,
             get_state,
             get_history,
             get_job,
@@ -531,6 +569,7 @@ fn main() {
             engine_diagnostics,
             default_settings,
             analyze_url,
+            search_youtube,
             enqueue,
             control_job,
             control_all,

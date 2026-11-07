@@ -1,8 +1,14 @@
+import { flushMusicPersistence } from "./audio/persistence";
 import { useEffect, useState, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   UserRound,
   LayoutDashboard,
+  Search,
+  Music2,
+  ListMusic,
+  PanelLeftClose,
+  PanelRightOpen,
   Download,
   History,
   Settings,
@@ -23,7 +29,11 @@ import type {
   Batch,
   Diagnostics,
 } from "./types";
+import { MusicService, Player } from "./components/Player";
+import Library, { PlayerSettings } from "./pages/Library";
+import { useMusic, togglePlayerPanel } from "./stores/music";
 import Dashboard from "./pages/Dashboard";
+import DiscoverySearch from "./pages/Search";
 import Downloads from "./pages/Downloads";
 import SettingsPage, { EnginePanel } from "./pages/Settings";
 import { JobDetails, Modal } from "./components/Common";
@@ -40,6 +50,25 @@ export default function App() {
   useEffect(() => { const timer = window.setInterval(() => void synchronize(), 15000); return () => window.clearInterval(timer); }, []);
   const { db, page, navigate, error, message, clearError, notify, setDb } =
     useApp();
+  const [collapsed, setCollapsed] = useState(
+    localStorage.getItem("ythub-sidebar") === "collapsed",
+  );
+  const playlists = useMusic((s) => s.playlists);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === ",") {
+        e.preventDefault();
+        navigate("settings");
+      }
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
+        e.preventDefault();
+        navigate("search");
+        setTimeout(() => document.getElementById("youtube-discovery")?.focus(), 0);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [navigate]);
   const [selected, setSelected] = useState<string | null>(null);
   const [selectedJob, setSelectedJob] = useState<Job | null>(null);
   useEffect(() => {
@@ -181,15 +210,19 @@ export default function App() {
   const count = db?.jobs.filter((j) => active(j.status)).length || 0;
   const job = db?.jobs.find((j) => j.id === selected) || selectedJob;
   const nav: { page: Page; label: string; Icon: typeof Download }[] = [
-    { page: "dashboard", label: "Dashboard", Icon: LayoutDashboard },
+    { page: "dashboard", label: "Home", Icon: LayoutDashboard },
+    { page: "search", label: "Search", Icon: Search },
     { page: "downloads", label: "Downloads", Icon: Download },
+    { page: "library", label: "Music Library", Icon: Music2 },
+    { page: "playlists", label: "Playlists", Icon: ListMusic },
     { page: "history", label: "History", Icon: History },
     { page: "settings", label: "Settings", Icon: Settings },
     { page: "account", label: "Account", Icon: UserRound },
     { page: "about", label: "About", Icon: Info },
   ];
   return (
-    <div className="app-shell">
+    <div className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}>
+      <MusicService />
       <aside className="sidebar">
         <button className="brand" onClick={() => navigate("dashboard")}>
           <span className="brand-icon">
@@ -197,7 +230,7 @@ export default function App() {
           </span>
           <span>
             YT<span className="brand-light">Hub</span>
-            <small>YOUR YOUTUBE MEDIA HUB</small>
+            <small>Download. Convert. Manage.</small>
           </span>
         </button>
         <div className="sidebar-label">WORKSPACE</div>
@@ -205,12 +238,13 @@ export default function App() {
           {nav.map(({ page: p, label, Icon }) => (
             <button
               key={p}
+              title={label}
               className={`nav-item ${page === p ? "active" : ""}`}
               aria-current={page === p ? "page" : undefined}
               onClick={() => navigate(p)}
             >
               <Icon size={19} />
-              {label}
+              <span className="nav-label">{label}</span>
               {p === "downloads" && count > 0 && (
                 <span className="nav-count">{count}</span>
               )}
@@ -218,6 +252,27 @@ export default function App() {
             </button>
           ))}
         </nav>
+        <div className="sidebar-playlists">
+          <div className="sidebar-label">YOUR PLAYLISTS</div>
+          {playlists.slice(0, 6).map((p) => (
+            <button
+              title={p.title}
+              key={p.id}
+              className="sidebar-playlist"
+              onClick={() => {
+                useMusic.setState({ selectedPlaylist: p.id });
+                navigate("playlists");
+              }}
+            >
+              <ListMusic size={17} />
+              <span>
+                {p.title}
+                <small>{p.tracks.length} songs</small>
+              </span>
+            </button>
+          ))}
+          {!playlists.length && <p>Your collections, all together.</p>}
+        </div>
         <div className="sidebar-bottom">
           <div className="engine-indicator">
             <span
@@ -247,18 +302,56 @@ export default function App() {
             Open download folder <ArrowUpRight size={15} />
           </button>
           <div className="version">
-            YTHub <span>v1.0.0</span>
+            YTHub <span>v1.1.0</span>
           </div>
         </div>
       </aside>
       <div className="main-shell">
         <header className="topbar">
           <div>
-            <span className="muted">Workspace</span>
+            <button
+              className="icon-button"
+              title="Toggle sidebar"
+              aria-label="Toggle sidebar"
+              onClick={() =>
+                setCollapsed((v) => {
+                  localStorage.setItem(
+                    "ythub-sidebar",
+                    v ? "expanded" : "collapsed",
+                  );
+                  return !v;
+                })
+              }
+            >
+              <PanelLeftClose size={18} />
+            </button>
+            <span className="muted">YTHub</span>
             <ChevronRight size={13} />
             <span>{nav.find((n) => n.page === page)?.label}</span>
           </div>
           <div className="topbar-right">
+            <button
+              className="icon-button"
+              title="Search music (Ctrl+F)"
+              aria-label="Search music"
+              onClick={() => {
+                navigate("search");
+                setTimeout(
+                  () => document.getElementById("youtube-discovery")?.focus(),
+                  0,
+                );
+              }}
+            >
+              <Search size={17} />
+            </button>
+            <button
+              className="icon-button"
+              title="Toggle Now Playing"
+              aria-label="Toggle Now Playing"
+              onClick={togglePlayerPanel}
+            >
+              <PanelRightOpen size={18} />
+            </button>
             <span className="privacy">
               <CircleCheck size={14} />
               Local & private
@@ -318,7 +411,13 @@ export default function App() {
             <>
               {page === "account" && <Account />}{" "}
               {page === "dashboard" && <Dashboard onSelect={setSelected} />}{" "}
-              {page === "downloads" && <Downloads onSelect={setSelected} />}{" "}
+              {page === "search" && <DiscoverySearch />}
+              {page === "library" && <Library />}
+              {page === "playlists" && <Library playlistPage />}
+              {page === "settings" && !db && <PlayerSettings />}
+              {page === "downloads" && (
+                <Downloads onSelect={setSelected} />
+              )}{" "}
               {page === "history" && (
                 <Downloads history onSelect={setSelected} />
               )}{" "}
@@ -355,7 +454,7 @@ export default function App() {
                   </p>
                   <div className="card about-card">
                     <h2>
-                      Application version <span className="muted">1.0.0</span>
+                      Application version <span className="muted">1.1.0</span>
                     </h2>
                     <EnginePanel
                       versions={versions}
@@ -389,6 +488,8 @@ export default function App() {
           </footer>
         </main>
       </div>
+      <Player />
+      <Player mini />
       {job && <JobDetails job={job} onClose={() => setSelected(null)} />}
       {close && (
         <Modal
@@ -417,7 +518,10 @@ export default function App() {
             <button
               className="primary"
               onClick={() =>
-                void perform(() => call("window_action", { action: "quit" }))
+                void perform(async () => {
+                  await flushMusicPersistence();
+                  await call("window_action", { action: "quit" });
+                })
               }
             >
               Exit & pause downloads

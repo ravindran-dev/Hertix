@@ -1,3 +1,4 @@
+import { importTrack, useMusic } from "../stores/music";
 import {
   X,
   FolderOpen,
@@ -198,6 +199,22 @@ export function JobActions({
           <Ban size={16} />
         </button>
       )}
+      {job.status === "completed" &&
+        job.mediaType === "audio" &&
+        job.outputPath && (
+          <button
+            title="Play now"
+            aria-label={`Play ${job.title}`}
+            onClick={() =>
+              void perform(async () => {
+                const track = await importTrack(job.outputPath!, job);
+                useMusic.getState().play(track.id);
+              })
+            }
+          >
+            <Play size={16} />
+          </button>
+        )}
       {job.outputPath && (
         <button
           title="Open folder"

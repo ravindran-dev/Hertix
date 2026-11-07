@@ -1,7 +1,7 @@
 import { invoke, isTauri } from '@tauri-apps/api/core';
 import { useAccount } from './auth';
 import { useSync } from './sync';
-import { useEffect,useRef,useState } from 'react';
+import { useCallback, useEffect,useRef,useState } from 'react';
 import { cloudFiles, storageUsage, uploadFile, downloadFile, fileAction, type CloudObject, type Usage } from './files';
 export default function CloudFiles() {
   const owner=useAccount(s=>s.user?.id);
@@ -11,9 +11,10 @@ export default function CloudFiles() {
   const [files,setFiles]=useState<CloudObject[]>([]);const [usage,setUsage]=useState<Usage>();
   const [message,setMessage]=useState('');const [busy,setBusy]=useState(false);const [progress,setProgress]=useState(0);
   const cancel=useRef<AbortController|null>(null);const input=useRef<HTMLInputElement>(null);const retry=useRef<CloudObject|undefined>(undefined);
-  async function refresh(){const [files,usage]=await Promise.all([cloudFiles(),storageUsage()]);setFiles(files);setUsage(usage);
+  const refresh=useCallback(async()=>{const [files,usage]=await Promise.all([cloudFiles(),storageUsage()]);setFiles(files);setUsage(usage);
     if(isTauri() && owner){const result=new Set<string>();for(const file of files.filter(f=>f.status==='ready')){if(await invoke<boolean>('cloud_media_available',{owner,object:file.id,checksum:file.sha256,bytes:file.bytes}))result.add(file.id);}setAvailable(result);}}
-  useEffect(()=>{void refresh().catch(()=>setMessage('Cloud storage could not be loaded.'));return()=>cancel.current?.abort();},[]);
+  ,[owner]);
+  useEffect(()=>{void refresh().catch(()=>setMessage('Cloud storage could not be loaded.'));return()=>cancel.current?.abort();},[refresh]);
   async function run(action:(signal:AbortSignal)=>Promise<void>){setBusy(true);setMessage('');setProgress(0);cancel.current=new AbortController();try{await action(cancel.current.signal);await refresh();setMessage(current=>current || 'Cloud operation confirmed.');}catch(e){setMessage(e instanceof Error?e.message:'Request failed');void refresh().catch(()=>{});}finally{setBusy(false);}}
   const batchKey=`ythub-download-batch:${owner}`;
   const pendingBatch=JSON.parse(localStorage.getItem(batchKey)||'[]') as string[];

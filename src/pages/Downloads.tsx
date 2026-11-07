@@ -24,7 +24,9 @@ export default function Downloads({
 }) {
   const { db, navigate } = useApp();
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState("all");
+  const [filter, setFilter] = useState(
+    sessionStorage.getItem("ythub-download-filter") || "all",
+  );
   const [saved, setSaved] = useState<Job[]>([]);
   const [offset, setOffset] = useState(0);
   const [more, setMore] = useState(true);
@@ -92,6 +94,27 @@ export default function Downloads({
           <FolderOpen size={16} />
           Open downloads
         </button>
+      </div>
+      <div className="library-tabs" role="tablist" aria-label="Download status">
+        {(["active", "completed", "failed"] as const).map((tab) => (
+          <button
+            key={tab}
+            role="tab"
+            aria-selected={
+              tab === "active" ? !history : history && filter === tab
+            }
+            onClick={() => {
+              setFilter(tab === "active" ? "all" : tab);
+              sessionStorage.setItem(
+                "ythub-download-filter",
+                tab === "active" ? "all" : tab,
+              );
+              navigate(tab === "active" ? "downloads" : "history");
+            }}
+          >
+            {tab[0].toUpperCase() + tab.slice(1)}
+          </button>
+        ))}
       </div>
       <div className="toolbar">
         <div className="search">

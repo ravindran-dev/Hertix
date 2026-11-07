@@ -1,18 +1,23 @@
 {
-  "provisionedAt": "2026-10-08T15:27:19.3100522Z",
+  "deno": {
+    "url": "https://github.com/denoland/deno/releases/download/v2.9.8/deno-x86_64-pc-windows-msvc.zip",
+    "version": "v2.9.8",
+    "digest": "sha256:cba84b26e0df5ae7f74fc66b86a95b866872a86292ebd84fa1e959927edd93bf"
+  },
+  "provisionedAt": "2026-10-26T13:49:49.5933103Z",
   "ytDlp": {
-    "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.08.19/yt-dlp.exe",
-    "version": "2026.08.19",
-    "digest": "sha256:66674953fe251b89f4d08c5f0e35e0728679bd67ab3d7d05c0562af101dd3e7a"
+    "url": "https://github.com/yt-dlp/yt-dlp/releases/download/2026.10.21/yt-dlp.exe",
+    "version": "2026.10.21",
+    "digest": "sha256:33121d192d706e62f684a06f80918e3f3a8ba52ac3a65213b6951c39c7d9f555"
   },
   "ffmpeg": {
     "url": "https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip",
     "version": "latest",
-    "digest": "sha256:0e95afd64d3a5426c94d1acb73d3b1b3fb5f7e72893c3133c03e25b5ad990b00"
+    "digest": "sha256:d5410167dc4e59bac2c95f3588a8e2b5abe7777dd4cfdfff0cd72bdff99fd064"
   },
-  "deno": {
-    "url": "https://github.com/denoland/deno/releases/download/v2.9.7/deno-x86_64-pc-windows-msvc.zip",
-    "version": "v2.9.7",
-    "digest": "sha256:a0c3101b4158d1dfb7d6a78a7bf0f3de80c96bb423c152beec8beb22786f2238"
+  "whisperCli": {
+    "version": "v1.9.2",
+    "url": "https://github.com/ggml-org/whisper.cpp/releases/download/v1.9.2/whisper-bin-x64.zip",
+    "digest": "sha256:49dcc16de826f20bd53d44f947a1ae49dfa81f86cad67a64d80820cb192d674a"
   }
 }

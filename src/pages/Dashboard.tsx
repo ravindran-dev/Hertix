@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { LibraryShortcuts } from "./Library";
 import {
   ArrowRight,
   Link,
@@ -7,19 +8,14 @@ import {
   Film,
   FolderOpen,
   ListVideo,
-  Archive,
   Download,
-  CheckCircle2,
-  HardDrive,
-  Activity,
   ArrowDownToLine,
 } from "lucide-react";
 import { call } from "../api";
 import { useApp, perform } from "../stores/app";
 import type { Media } from "../types";
-import { validateUrl, active, bytes, time, today } from "../utils/media";
+import { validateUrl, time } from "../utils/media";
 import { JobList } from "../components/Common";
-import { requireCloud } from "../account/client";
 export default function Dashboard({
   onSelect,
 }: {
@@ -35,32 +31,9 @@ export default function Dashboard({
   const [audio, setAudio] = useState(settings?.audioQuality || "320");
   const [video, setVideo] = useState(settings?.videoQuality || "best");
   const [playlist, setPlaylist] = useState(true);
-  const [discoveryQuery, setDiscoveryQuery] = useState("");
-  const [discovery, setDiscovery] = useState<any[]>([]);
-  const [searchBusy, setSearchBusy] = useState(false);
-  const [searchError, setSearchError] = useState("");
-  const [searchType, setSearchType] = useState("all");
-  useEffect(() => {
-    let timer: ReturnType<typeof setTimeout>;
-    const query = discoveryQuery.trim();
-    if (query.length < 2) { setDiscovery([]); return () => clearTimeout(timer); }
-    timer = setTimeout(() => {
-      const controller = new AbortController();
-      setSearchBusy(true); setSearchError("");
-      requireCloud().functions.invoke("youtube-discovery", { body: { q: query, type: searchType } })
-        .then(({data,error}) => { if (controller.signal.aborted) return; if (error) throw error; setDiscovery(data.items || []); })
-        .catch((e) => { if (!controller.signal.aborted) { setDiscovery([]); setSearchError(e.message || "Search failed"); } })
-        .finally(() => { if (!controller.signal.aborted) setSearchBusy(false); });
-      return () => controller.abort();
-    }, 350);
-    return () => clearTimeout(timer);
-  }, [discoveryQuery, searchType]);
   const [zip, setZip] = useState(settings?.autoZip || false);
   const [order, setOrder] = useState(settings?.preserveOrder ?? true);
   const jobs = db?.jobs || [];
-  const completed = jobs.filter((j) =>
-    ["completed", "skipped"].includes(j.status),
-  );
   const analyze = async () => {
     const error = validateUrl(url);
     if (error) {
@@ -103,43 +76,13 @@ export default function Dashboard({
       <div className="page-heading">
         <div>
           <div className="eyebrow">YOUR LIBRARY STARTS HERE</div>
-          <h1>
-            Make it yours<span className="accent">.</span>
-          </h1>
-          <p>Bring your favorite videos and playlists offline.</p>
+          <h1>Download YouTube content</h1>
+          <p>Videos, playlists, or just audio. High quality. Fast. Simple.</p>
         </div>
         <span className="local-pill">
           <span />
           Runs on your device
         </span>
-      </div>
-      <div className="stats-grid">
-        {[
-          {
-            label: "Active downloads",
-            value: jobs.filter((j) => active(j.status)).length,
-            Icon: Activity,
-          },
-          {
-            label: "Completed today",
-            value: completed.filter((j) => today(j.completedAt)).length,
-            Icon: CheckCircle2,
-          },
-          { label: "Total downloads", value: completed.length, Icon: Download },
-          {
-            label: "Data downloaded",
-            value: bytes(completed.reduce((n, j) => n + j.downloadedBytes, 0)),
-            Icon: HardDrive,
-          },
-        ].map(({ label, value, Icon }) => (
-          <div className="stat-card" key={label}>
-            <div className="stat-top">
-              <span>{label}</span>
-              <Icon size={17} />
-            </div>
-            <strong>{value}</strong>
-          </div>
-        ))}
       </div>
       <div className="dashboard-grid">
         <section className="card download-card">
@@ -175,22 +118,30 @@ export default function Dashboard({
               {analyzing ? "Analyzing…" : "Analyze"}
               {!analyzing && <ArrowRight size={15} />}
             </button>
+            <button
+              className="icon-button"
+              aria-label="Paste URL"
+              title="Paste URL"
+              onClick={() =>
+                void perform(async () =>
+                  setUrl(await navigator.clipboard.readText()),
+                )
+              }
+            >
+              Paste
+            </button>
+            <button
+              className="icon-button"
+              aria-label="Clear URL"
+              title="Clear URL"
+              onClick={() => {
+                setUrl("");
+                setMedia(null);
+              }}
+            >
+              X
+            </button>
           </div>
-          <label className="field-label spaced" htmlFor="youtube-discovery">Search YouTube</label>
-          <input id="youtube-discovery" value={discoveryQuery} placeholder="Search songs, artists, videos or playlists…"
-            onChange={e => setDiscoveryQuery(e.target.value)} />
-          <select aria-label="YouTube result type" value={searchType} onChange={e => setSearchType(e.target.value)}>
-            {["all", "songs", "videos", "artists", "playlists", "channels"].map(x => <option key={x} value={x}>{x}</option>)}
-          </select>
-          {searchBusy && <p>Searching YouTube…</p>}
-          {searchError && <p role="alert">{searchError}</p>}
-          {discovery.map((result: any) => <div className="analysis-result" key={`${result.type}:${result.id}`}>
-            {result.thumbnail && <img src={result.thumbnail} alt="" referrerPolicy="no-referrer" />}
-            <div><strong>{result.title}</strong><p>{result.type} · {result.channel}</p>
-              <small>Metadata only · download availability not verified</small>
-              <a href={result.source_url} target="_blank" rel="noreferrer">Open on YouTube</a>
-            </div>
-          </div>)}
           {media && (
             <div className="analysis-result">
               {media.thumbnail && (
@@ -270,6 +221,8 @@ export default function Dashboard({
               <span className="radio-dot" />
             </button>
           </div>
+          <div className="download-configuration">
+            <div className="download-quality">
           <label className="field-label spaced" htmlFor="quality">
             Quality
           </label>
@@ -309,6 +262,7 @@ export default function Dashboard({
               ? "MP3 conversion preserves the source’s limits. A higher bitrate cannot add missing detail."
               : "Resolution is capped at your choice. Separate audio and video streams are merged locally."}
           </p>
+            </div>
           <div className="playlist-options">
             <label className="check-line">
               <input
@@ -373,48 +327,13 @@ export default function Dashboard({
             {starting ? "Preparing your download…" : "Start download"}
             <ArrowRight size={17} />
           </button>
+          </div>
         </section>
-        <aside className="dashboard-aside">
-          <div className="card guide-card">
-            <div className="guide-icon">
-              <Music2 size={25} />
-              <Film size={25} />
-            </div>
-            <div className="eyebrow">YOUR MEDIA. YOUR WAY.</div>
-            <h2>
-              Good things,
-              <br />
-              saved for later.
-            </h2>
-            <p>
-              A soundtrack for the commute. A tutorial for the weekend. Keep
-              what matters within reach.
-            </p>
-            <div className="guide-feature">
-              <CheckCircle2 size={17} />
-              <span>Original quality, whenever available</span>
-            </div>
-            <div className="guide-feature">
-              <Archive size={17} />
-              <span>Entire playlists, neatly organized</span>
-            </div>
-            <div className="guide-feature">
-              <HardDrive size={17} />
-              <span>Processed locally on your computer</span>
-            </div>
-          </div>
-          <div className="tip">
-            <span className="eyebrow">A LITTLE TIP</span>
-            <p>
-              Paste a playlist link and turn on ZIP export to keep the whole
-              collection in one file.
-            </p>
-          </div>
-        </aside>
       </div>
+      <LibraryShortcuts />
       <section className="card recent">
         <div className="section-head">
-          <h2>Recent activity</h2>
+          <h2>Recently downloaded</h2>
           <button className="text-button" onClick={() => navigate("downloads")}>
             View all <ArrowRight size={14} />
           </button>
