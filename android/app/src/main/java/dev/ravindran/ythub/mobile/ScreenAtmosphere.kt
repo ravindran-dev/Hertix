@@ -1,6 +1,7 @@
 package dev.ravindran.ythub.mobile
 
 import android.os.Build
+import android.graphics.BitmapFactory
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
@@ -28,6 +29,8 @@ import coil.compose.AsyncImage
 import java.io.File
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 internal val LocalPlayerPullOffset = staticCompositionLocalOf { mutableFloatStateOf(0f) }
 internal val LocalAtmosphereLayer = staticCompositionLocalOf<GraphicsLayer?> { null }
@@ -65,21 +68,12 @@ internal fun ScreenAtmosphere(destination: String, layer: GraphicsLayer, frosted
     }
 }
 
-/** The same scenic material under every browsing route, including local search. */
+/** Quiet black surfaces keep content and album covers in the foreground. */
 @Composable
 private fun ScenicAtmosphere() {
     val base = MaterialTheme.colorScheme.background
-    val dark = base.luminance() < .5f
-    val scroll = LocalPageScroll.current
-    Box(Modifier.fillMaxSize().clipToBounds()) {
-      Box(Modifier.fillMaxSize().graphicsLayer {
-          translationY = -(scroll?.pixels ?: 0f)
-      }.testTag("scrolling-scenic-background")) {
-        Image(painterResource(R.drawable.home_sunset), null, Modifier.fillMaxSize().testTag("scenic-screen-background"),
-            contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
-        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to base.copy(alpha = if (dark) .28f else .66f),
-            .32f to base.copy(alpha = if (dark) .40f else .74f), .72f to base.copy(alpha = if (dark) .90f else .94f), 1f to base.copy(alpha = .97f))))
-      }
+    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(base, Color(0xFF080809), Color(0xFF050505)))).testTag("black-screen-background")) {
+        Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(Color.White.copy(alpha = .018f), Color.Transparent), radius = 1050f)))
     }
 }
 
@@ -87,19 +81,26 @@ private fun ScenicAtmosphere() {
 internal fun ArtworkAtmosphere(track: LocalTrack?, modifier: Modifier = Modifier, strong: Boolean = false, hero: Boolean = false) {
     val base = MaterialTheme.colorScheme.background
     val dark = base.luminance() < .5f
-    Box(modifier) {
-        if (!track?.artwork.isNullOrBlank()) {
-            AsyncImage(File(track!!.artwork), null, (if(hero) Modifier.fillMaxWidth().aspectRatio(1f) else Modifier.fillMaxSize()).graphicsLayer {
-                alpha = if (strong) (if (dark) .86f else .30f) else (if (dark) .24f else .09f)
-                if (!strong && Build.VERSION.SDK_INT >= 31) renderEffect = BlurEffect(48f, 48f, TileMode.Clamp)
-                scaleX = if(hero) 1f else 1.08f; scaleY = if(hero) 1f else 1.08f
-            }, contentScale = ContentScale.Crop, alignment = Alignment.TopCenter)
-        } else {
-            Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(
-                Color(0xFF8D142A).copy(alpha = if (strong) .8f else .50f), base))))
-        }
-        if (hero) Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to Color.Transparent, .25f to base.copy(alpha = .05f), .50f to base.copy(alpha = .95f), .65f to base)))
-        else Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to base.copy(alpha = if (strong) .48f else .35f),
-            .30f to base.copy(alpha = if (strong) .18f else .65f), .68f to base.copy(alpha = .89f), 1f to base)))
+    val accent by produceState(Color(0xFF481722), track?.artwork) {
+        value = sampleArtworkAccent(track?.artwork.orEmpty())
     }
+    Box(modifier) {
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(base, accent.copy(alpha = if (strong) .22f else .12f), base))))
+        Box(Modifier.fillMaxSize().background(Brush.radialGradient(listOf(accent.copy(alpha = if (strong) .12f else .06f), Color.Transparent), radius = 850f)))
+    }
+}
+
+private suspend fun sampleArtworkAccent(path: String): Color = withContext(Dispatchers.IO) {
+    if (path.isBlank()) return@withContext Color(0xFF31131A)
+    val options = BitmapFactory.Options().apply { inSampleSize = 32; inPreferredConfig = android.graphics.Bitmap.Config.RGB_565 }
+    val bitmap = runCatching { BitmapFactory.decodeFile(path, options) }.getOrNull() ?: return@withContext Color(0xFF31131A)
+    try {
+        val x = bitmap.width / 2
+        val y = bitmap.height / 2
+        val pixel = bitmap.getPixel(x, y)
+        val r = android.graphics.Color.red(pixel) / 255f
+        val g = android.graphics.Color.green(pixel) / 255f
+        val b = android.graphics.Color.blue(pixel) / 255f
+        Color(r * .28f, g * .28f, b * .28f)
+    } finally { bitmap.recycle() }
 }

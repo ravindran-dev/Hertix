@@ -5,6 +5,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.provider.OpenableColumns
 import android.util.AtomicFile
+import android.graphics.BitmapFactory
 import androidx.core.content.FileProvider
 import com.google.gson.Gson
 import kotlinx.coroutines.*
@@ -12,6 +13,7 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.io.File
+import java.net.URL
 import java.util.UUID
 import java.util.zip.ZipInputStream
 
@@ -21,6 +23,7 @@ object MusicRepository {
     private val gson = Gson()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val scanLock = Mutex()
+    private val artworkLookupLock = Mutex()
     private val stateLock = Any()
     private val _state = MutableStateFlow(MusicState())
     val state = _state.asStateFlow()
@@ -90,7 +93,95 @@ object MusicRepository {
     fun addToPlaylist(id: String, tracks: List<String>) = localUpdate { it.copy(playlists = it.playlists.map { p -> if (p.id == id) p.copy(tracks = p.tracks + tracks.filterNot { t -> t in p.tracks }) else p }) }
     fun played(id: String) = update { val previous = it.history[id] ?: PlayRecord(); it.copy(history = it.history + (id to PlayRecord(previous.count + 1, System.currentTimeMillis()))) }
     fun exists(uri: String): Boolean = runCatching { context.contentResolver.openAssetFileDescriptor(Uri.parse(uri), "r")?.use { true } ?: false }.getOrDefault(false)
-    private fun metadata(uri: String, downloadId: String? = null, fallback: String = ""): LocalTrack {
+    private fun fetchArtwork(id: String, source: String): String {
+        if (source.isBlank()) return ""
+        val target = File(root, "artwork/$id.jpg")
+        if (target.isFile && target.length() > 0) return target.absolutePath
+        return runCatching {
+            val url = URL(source)
+            require(url.protocol == "https") { "Artwork must use HTTPS" }
+            val connection = url.openConnection().apply { connectTimeout = 8_000; readTimeout = 8_000; useCaches = true }
+            connection.getInputStream().use { input ->
+                target.parentFile?.mkdirs()
+                target.outputStream().use { output ->
+                    val buffer = ByteArray(16 * 1024)
+                    var total = 0
+                    while (true) {
+                        val count = input.read(buffer)
+                        if (count < 0) break
+                        total += count
+                        require(total <= 8 * 1024 * 1024) { "Artwork image is too large" }
+                        output.write(buffer, 0, count)
+                    }
+                }
+            }
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(target.absolutePath, bounds)
+            require(bounds.outWidth > 0 && bounds.outHeight > 0) { "Artwork image is invalid" }
+            MusicPersistence.trimArtwork(target.parentFile!!)
+            target.absolutePath
+        }.getOrElse { target.delete(); "" }
+    }
+    /** Repair old imported files only when their own tags and original download have no artwork. */
+    fun restoreMissingArtwork() { scope.launch { restoreMissingArtworkInternal() } }
+    private suspend fun restoreMissingArtworkInternal(dailyLookupLimit: Int = 30) = withContext(Dispatchers.IO) {
+        ready.first { it }
+        val account = CloudAccount.state.first { it.status != "Initializing" }
+        val user = account.userId ?: return@withContext
+        artworkLookupLock.withLock {
+            val prefs = context.getSharedPreferences("artwork_repair", Context.MODE_PRIVATE)
+            val day = System.currentTimeMillis() / 86_400_000L
+            val used = if (prefs.getLong("day", -1L) == day) prefs.getInt("used", 0) else 0
+            var remaining = (dailyLookupLimit - used).coerceAtLeast(0)
+            if (remaining == 0) return@withLock
+            val attempted = prefs.getStringSet("attempted", emptySet()).orEmpty().toMutableSet()
+            val missing = _state.value.tracks.filter { it.artwork.isBlank() && it.id !in attempted }
+            android.util.Log.i("YTHubArtwork", "Repair started: ${missing.size} missing; daily lookups left=$remaining")
+            for ((index, track) in missing.withIndex()) {
+                if (remaining <= 0 || CloudAccount.state.value.userId != user) break
+                if (index > 0) delay(2_300) // Stay below the discovery endpoint's per-user request ceiling.
+                val nextUsed = dailyLookupLimit - remaining + 1
+                prefs.edit().putLong("day", day).putInt("used", nextUsed.coerceAtMost(dailyLookupLimit)).apply()
+                remaining--
+                try {
+                    val query = listOf(track.title, track.artist.takeUnless { it == "Unknown artist" }.orEmpty())
+                        .filter(String::isNotBlank).joinToString(" ").take(100)
+                    val matches = searchYouTube(query, "songs")
+                    val titleWords = artworkWords(track.title).toSet()
+                    val artistWords = artworkWords(track.artist).filterNot { it in setOf("unknown", "artist") }.toSet()
+                    // Search snippets are ambiguous. Only attach a cover when both the full
+                    // title and artist are represented, with one clearly better candidate.
+                    val ranked = if (titleWords.isEmpty() || artistWords.isEmpty()) emptyList() else matches.mapNotNull { result ->
+                        val resultTitleWords = artworkWords(result.title).toSet()
+                        val resultIdentityWords = resultTitleWords + artworkWords(result.channel)
+                        val titleScore = titleWords.count { it in resultTitleWords }.toFloat() / titleWords.size
+                        val artistScore = artistWords.count { it in resultIdentityWords }.toFloat() / artistWords.size
+                        if (result.thumbnail.isBlank() || titleScore < .95f || artistScore < .75f) null
+                        else result to (titleScore * 2f + artistScore)
+                    }.sortedByDescending { it.second }
+                    val best = ranked.firstOrNull()?.takeIf { ranked.size == 1 || it.second - ranked[1].second >= .15f }?.first
+                    val path = best?.let { fetchArtwork(track.id, it.thumbnail) }.orEmpty()
+                    if (path.isNotBlank()) update { state -> state.copy(tracks = state.tracks.map { current ->
+                        if (current.id == track.id && current.artwork.isBlank()) current.copy(artwork = path) else current
+                    }) }
+                    attempted.add(track.id)
+                    prefs.edit().putStringSet("attempted", attempted).apply()
+                    android.util.Log.d("YTHubArtwork", if (path.isNotBlank()) "Artwork restored" else "No confident artwork match")
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    android.util.Log.w("YTHubArtwork", "Artwork lookup stopped: ${error.javaClass.simpleName}")
+                    message.value = error.message ?: "Could not restore song artwork"
+                    break
+                }
+            }
+        }
+    }
+    private fun artworkWords(value: String): List<String> = value.lowercase()
+        .replace(Regex("\\([^)]*\\)|\\[[^]]*]"), " ")
+        .split(Regex("[^a-z0-9]+"))
+        .filter { it.length > 2 && it !in setOf("official", "audio", "video", "lyrics", "lyrical", "song", "music", "visualizer", "youtube", "topic", "from", "the", "and", "feat", "with") }
+    private fun metadata(uri: String, downloadId: String? = null, fallback: String = "", fallbackArtworkUrl: String = ""): LocalTrack {
         val parsed = Uri.parse(uri)
         var filename = fallback.ifBlank { parsed.lastPathSegment.orEmpty() }; var size = 0L
         context.contentResolver.query(parsed, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
@@ -104,7 +195,8 @@ object MusicRepository {
         try {
             reader.setDataSource(context, parsed)
             fun field(key: Int) = reader.extractMetadata(key).orEmpty()
-            val art = reader.embeddedPicture?.takeIf { it.size <= 8 * 1024 * 1024 }?.let { bytes -> File(root, "artwork/$id.jpg").apply { parentFile?.mkdirs(); writeBytes(bytes); MusicPersistence.trimArtwork(parentFile!!) }.absolutePath }.orEmpty()
+            val art = reader.embeddedPicture?.takeIf { it.size <= 8 * 1024 * 1024 }?.let { bytes -> File(root, "artwork/$id.jpg").apply { parentFile?.mkdirs(); writeBytes(bytes); MusicPersistence.trimArtwork(parentFile!!) }.absolutePath }
+                ?: fetchArtwork(id, fallbackArtworkUrl)
             return LocalTrack(id, uri, field(MediaMetadataRetriever.METADATA_KEY_TITLE).ifBlank { filename.substringBeforeLast('.') },
                 field(MediaMetadataRetriever.METADATA_KEY_ARTIST).ifBlank { "Unknown artist" }, field(MediaMetadataRetriever.METADATA_KEY_ALBUM).ifBlank { "Unknown album" }, filename,
                 field(MediaMetadataRetriever.METADATA_KEY_DURATION).toLongOrNull() ?: 0, size, field(MediaMetadataRetriever.METADATA_KEY_BITRATE).toLongOrNull() ?: 0,
@@ -114,7 +206,11 @@ object MusicRepository {
     suspend fun downloadedTracks(id: String): List<String> = withContext(Dispatchers.IO) {
         ready.first { it }
         val job = DownloadStore.items.value.find { it.id == id && it.audio && it.state == "Completed" } ?: error("Audio download is not complete")
-        val tracks = job.orderedAudioUris().mapNotNull { uri -> runCatching { metadata(uri, job.id, job.exportedNames.getOrNull(job.uris.indexOf(uri)).orEmpty()) }.getOrNull() }
+        val tracks = job.orderedAudioUris().mapNotNull { uri -> runCatching {
+            val index = job.uris.indexOf(uri)
+            val thumbnail = if (job.media.playlist) job.media.entries.getOrNull(index)?.thumbnail.orEmpty() else job.media.thumbnail
+            metadata(uri, job.id, job.exportedNames.getOrNull(index).orEmpty(), thumbnail)
+        }.getOrNull() }
         update { it.copy(tracks = MusicRules.merge(it.tracks, tracks), hidden = it.hidden - tracks.map { t -> t.id }.toSet()) }
         tracks.map { it.id }
     }
@@ -128,12 +224,19 @@ object MusicRepository {
             val byUri = old.tracks.associateBy { it.uri }
             val completed = downloads.filter { it.hasImportableAudio() }
             for (job in completed) {
-                if (!old.settings.autoAdd && !forceDownloads && job.createLibraryPlaylist != true) continue
+                val allowNewLibraryItems = old.settings.autoAdd || forceDownloads || job.createLibraryPlaylist == true
                 val ids = mutableListOf<String>()
                 for (uri in job.orderedAudioUris()) {
                     val i = job.uris.indexOf(uri)
                     val cached = byUri[uri]
-                    val track = runCatching { if (!forceDownloads && cached != null && exists(uri)) cached.copy(available = true) else metadata(uri, job.id, job.exportedNames.getOrNull(i).orEmpty()) }.getOrNull() ?: continue
+                    // Keep the user's auto-add preference, but still repair artwork for tracks already in their library.
+                    if (!allowNewLibraryItems && cached == null) continue
+                    val thumbnail = if (job.media.playlist) job.media.entries.getOrNull(i)?.thumbnail.orEmpty() else job.media.thumbnail
+                    val track = runCatching {
+                        if (!forceDownloads && cached != null && exists(uri)) cached.copy(available = true,
+                            artwork = cached.artwork.ifBlank { fetchArtwork(cached.id, thumbnail) })
+                        else metadata(uri, job.id, job.exportedNames.getOrNull(i).orEmpty(), thumbnail)
+                    }.getOrNull() ?: continue
                     ids.add(track.id)
                     if (track.id !in old.hidden) incoming.add(track)
                 }

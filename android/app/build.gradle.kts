@@ -14,17 +14,29 @@ android {
             val value = providers.environmentVariable(key).orElse(providers.gradleProperty(key)).getOrElse("")
             buildConfigField("String", key, "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
         }
-        versionCode = 3
-        versionName = "1.0.2"
+        // Keep versionCode monotonic from semantic versions: major*1,000,000 + minor*1,000 + patch.
+        versionCode = 1_000_003
+        versionName = "1.0.3"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
+    signingConfigs {
+        create("release") {
+            val store = providers.environmentVariable("YTHUB_RELEASE_KEYSTORE").orNull
+            if (!store.isNullOrBlank()) {
+                storeFile = file(store)
+                storePassword = providers.environmentVariable("YTHUB_RELEASE_STORE_PASSWORD").orNull
+                keyAlias = providers.environmentVariable("YTHUB_RELEASE_KEY_ALIAS").orNull
+                keyPassword = providers.environmentVariable("YTHUB_RELEASE_KEY_PASSWORD").orNull
+            }
+        }
+    }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
     packaging { jniLibs.useLegacyPackaging = true }
     buildTypes {
-        release { isMinifyEnabled = false }
+        release { isMinifyEnabled = false; signingConfig = signingConfigs.getByName("release") }
         // Internal phone validation with release runtime behavior and the existing install signature.
         create("preview") {
             initWith(getByName("release"))

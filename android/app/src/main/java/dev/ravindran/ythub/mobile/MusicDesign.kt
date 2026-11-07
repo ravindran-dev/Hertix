@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.material3.*
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.flow.map
@@ -81,12 +82,19 @@ internal fun musicTypography(): Typography {
                     Text(if(player.second) "Playing" else "Paused",fontSize=10.sp,lineHeight=13.sp,color=Color.White)
                 }
             }
-            if(onMore!=null)IconButton(onClick=onMore,modifier=Modifier.align(Alignment.TopEnd).padding(4.dp).size(36.dp).clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha=.40f))) {
-                Icon(Icons.Default.MoreHoriz,"Options for ${track.title}",Modifier.size(20.dp),tint=Color.White)
-            }
+            if(onMore!=null)ArtworkMoreButton(track.title, onMore, Modifier.align(Alignment.TopEnd).padding(7.dp))
         }
         Text(track.title,Modifier.fillMaxWidth().padding(top=9.dp),maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=14.sp,lineHeight=20.sp,fontWeight=FontWeight.Medium,color=if(active)MobileUi.accent else MaterialTheme.colorScheme.onSurface)
         Text(if(track.available)subtitle else "File unavailable",Modifier.fillMaxWidth().padding(top=2.dp),maxLines=1,overflow=TextOverflow.Ellipsis,fontSize=12.sp,lineHeight=17.sp,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun ArtworkMoreButton(title: String, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    GlassControlSurface(modifier.size(38.dp), shape = RoundedCornerShape(50), tintAlpha = .48f, flexible = false) {
+        Box(Modifier.fillMaxSize().glassTouch(onClick).semantics { contentDescription = "More options for $title" }, contentAlignment = Alignment.Center) {
+            Icon(Icons.Default.MoreHoriz, null, Modifier.size(20.dp), tint = Color.White)
+        }
     }
 }
 @Composable internal fun PlaylistCover(playlist:LocalPlaylist,tracks:List<LocalTrack>,modifier:Modifier=Modifier) {

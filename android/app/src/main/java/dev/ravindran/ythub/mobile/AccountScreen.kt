@@ -22,7 +22,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 
 @Composable
-fun AccountScreen(onCloudLibrary: () -> Unit = {}) {
+fun AccountScreen(onCloudLibrary: () -> Unit = {}, onSettings: () -> Unit = {}, onPlayerSettings: () -> Unit = {}, onDownloads: () -> Unit = {}, onAbout: () -> Unit = {}) {
     val account by CloudAccount.state.collectAsStateWithLifecycle()
     val sync by CloudSync.state.collectAsStateWithLifecycle()
     val scope=rememberCoroutineScope()
@@ -35,34 +35,50 @@ fun AccountScreen(onCloudLibrary: () -> Unit = {}) {
     var confirmation by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var message by remember { mutableStateOf("") }
+    var editingProfile by remember { mutableStateOf(false) }
+    var profileName by remember(account.displayName) { mutableStateOf(account.displayName) }
     fun action(block: suspend ()->Unit) { scope.launch { busy=true;message="";try { block() } catch(e: Exception) { message=e.message ?: "Request failed" } finally {busy=false;password=""} } }
     LaunchedEffect(account.status) { if(account.status=="Account recovery") mode="New password" }
     Box(Modifier.fillMaxSize(),contentAlignment=Alignment.TopCenter) {
     Surface(modifier=Modifier.widthIn(max=520.dp).fillMaxSize(),color=androidx.compose.ui.graphics.Color.Transparent) {
     Column(Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState()).padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-        Column(Modifier.fillMaxWidth().padding(vertical=12.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(10.dp)) {
+        if (account.userId != null) AccountProfileCard(account, onEdit = { profileName = account.displayName.ifBlank { account.email.substringBefore('@') }; editingProfile = true })
+        else Column(Modifier.fillMaxWidth().padding(vertical=12.dp),horizontalAlignment=Alignment.CenterHorizontally,verticalArrangement=Arrangement.spacedBy(10.dp)) {
             Icon(Icons.Outlined.Cloud,null,Modifier.size(32.dp),tint=MaterialTheme.colorScheme.primary)
             Text("Your music, anywhere",style=MaterialTheme.typography.titleLarge)
             Text("Offline on your phone. Online in your account.",style=MaterialTheme.typography.bodySmall,textAlign=TextAlign.Center,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        LocalLibraryBackup()
+        AccountModule("Offline backup", "Local library safety copy", Icons.Outlined.Save) { LocalLibraryBackup() }
         if(!CloudAccount.configured) {
             Text("Cloud unavailable",style=MaterialTheme.typography.titleLarge)
             Text("Cloud accounts are unavailable in this build. Your local library, backups and downloads are available.")
         } else if(account.userId!=null && mode!="New password") {
-            AccountGroup {
-            Text("YOUR ACCOUNT",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(account.email,style=MaterialTheme.typography.titleMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
-            Text("${if(account.verified) "Email verified" else "Verification pending"} · ${account.status}")
+            AccountModule("Account", "Sign-in and security", Icons.Outlined.Person) {
+                Text(account.email,style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
+                Text("${if(account.verified) "Email verified" else "Verification pending"} · ${account.status}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                MusicActionRow("Edit profile", Icons.Outlined.Edit, { profileName=account.displayName.ifBlank { account.email.substringBefore('@') }; editingProfile=true }, forward = true)
+                MusicActionRow("Change password", Icons.Outlined.Lock, { mode="New password" }, forward = true)
+                MusicActionRow("Sign out", Icons.Outlined.Logout, { action { CloudAccount.signOut(); message="Signed out" } }, forward = true)
             }
-            Spacer(Modifier.height(8.dp))
-            AccountGroup { BackupSettingsPanel(onCloudLibrary); BackupConflictReview() }
-            Spacer(Modifier.height(8.dp))
-            AccountGroup {
-            AccountExportButton()
-            OutlinedButton(onClick={mode="New password"},enabled=!busy) {Text("Change password")}
-            OutlinedButton(onClick={action {CloudAccount.signOut(true);message="Other refresh sessions revoked. Existing access tokens expire under the server policy."}},enabled=!busy) {Text("Sign out other sessions")}
-            TextButton(onClick={deleting=true},enabled=!busy) {Text("Delete account")}
+            AccountModule("Cloud & Synchronization", "Library, backup and storage", Icons.Outlined.Cloud) { BackupSettingsPanel(onCloudLibrary); BackupConflictReview() }
+            AccountModule("Music Player", "Playback and audio preferences", Icons.Outlined.PlayArrow) {
+                MusicActionRow("Playback preferences", Icons.Outlined.Settings, onPlayerSettings, forward = true)
+                MusicActionRow("Audio quality and equalizer", Icons.Outlined.Equalizer, onPlayerSettings, forward = true)
+            }
+            AccountModule("Downloads", "Queue and storage controls", Icons.Outlined.Download) {
+                MusicActionRow("Download queue", Icons.Outlined.Download, onDownloads, forward = true)
+                MusicActionRow("Download preferences", Icons.Outlined.Settings, onSettings, forward = true)
+                MusicActionRow("Storage management", Icons.Outlined.Storage, onSettings, forward = true)
+            }
+            AccountModule("Appearance", "Theme and interface", Icons.Outlined.Palette) { MusicActionRow("Appearance settings", Icons.Outlined.DarkMode, onSettings, forward = true) }
+            AccountModule("Privacy & Security", "Account data and sessions", Icons.Outlined.Security) {
+                AccountExportButton()
+                MusicActionRow("Sign out other sessions", Icons.Outlined.Devices, { action { CloudAccount.signOut(true); message="Other refresh sessions revoked. Existing access tokens expire under the server policy." } }, forward = true)
+                MusicActionRow("Delete account", Icons.Outlined.Delete, { deleting=true }, destructive = true)
+            }
+            AccountModule("About", "Version and diagnostics", Icons.Outlined.Info) {
+                MusicActionRow("About YTHub", Icons.Outlined.Info, onAbout, subtitle = "Version ${BuildConfig.VERSION_NAME}", forward = true)
+            }
             if(deleting) AlertDialog(onDismissRequest={if(!busy)deleting=false},title={Text("Permanently delete account?")},text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
                 Text("Your cloud files, playlists and metadata will be deleted. Local downloaded files remain. This cannot be undone.")
                 OutlinedTextField(confirmation,{confirmation=it},label={Text("Type DELETE MY ACCOUNT")})
@@ -71,8 +87,6 @@ fun AccountScreen(onCloudLibrary: () -> Unit = {}) {
                 CloudAccount.api("/functions/v1/account-files","POST",json("action" to "delete-account","confirmation" to confirmation,"password" to password))
                 CloudAccount.forgetDeletedAccount();deleting=false;message="Account deleted. Local files remain."
             }}){Text("Delete permanently")}},dismissButton={TextButton(enabled=!busy,onClick={deleting=false;password=""}){Text("Cancel")}})
-            Button(onClick={action {CloudAccount.signOut()}},enabled=!busy,modifier=Modifier.fillMaxWidth()) {Text("Sign out")}
-            }
         } else {
             Surface(shape=RoundedCornerShape(24.dp),color=MaterialTheme.colorScheme.surfaceContainer,modifier=Modifier.fillMaxWidth()) {
             Column(Modifier.padding(18.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -97,6 +111,7 @@ fun AccountScreen(onCloudLibrary: () -> Unit = {}) {
         }
         if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.primary)
         if(account.message.isNotBlank()) Text(account.message)
+        if(editingProfile) AlertDialog(onDismissRequest={if(!busy)editingProfile=false},title={Text("Edit profile")},text={OutlinedTextField(profileName,{profileName=it.take(100)},label={Text("Display name")},singleLine=true)},confirmButton={TextButton(enabled=!busy&&profileName.isNotBlank(),onClick={action {CloudAccount.updateDisplayName(profileName);editingProfile=false;message="Profile updated"}}){Text(if(busy)"Saving…" else "Save")}},dismissButton={TextButton(enabled=!busy,onClick={editingProfile=false}){Text("Cancel")}})
         Spacer(Modifier.height(LocalMusicBottomPadding.current + 20.dp))
     }
     }

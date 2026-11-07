@@ -55,13 +55,14 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 private val Accent = Color(0xFFFF173D)
-@Composable internal fun NowPlayingScreen(onLibrary: () -> Unit, onSettings: () -> Unit, onDownload: (String) -> Unit, onMinimize: () -> Unit = onLibrary, onPhoneMusic: () -> Unit = onLibrary) {
+@Composable internal fun NowPlayingScreen(onLibrary: () -> Unit, onSettings: () -> Unit, onDownload: (String) -> Unit, onMinimize: () -> Unit = onLibrary, onPhoneMusic: () -> Unit = onLibrary, source: String = "Library", motionProgress: Float = 1f) {
     val presentation=remember {MusicPlayback.state.map {it.copy(position=0)}.distinctUntilChanged()}
     val annotations=remember {MusicRepository.state.map {it.copy(queue=emptyList(),queueIndex=0,position=0,repeat=0,shuffle=false)}.distinctUntilChanged()}
     val player by presentation.collectAsStateWithLifecycle(initialValue=remember {MusicPlayback.state.value.copy(position=0)})
     val library by annotations.collectAsStateWithLifecycle(initialValue=remember {MusicRepository.state.value.copy(queue=emptyList(),queueIndex=0,position=0,repeat=0,shuffle=false)})
     val track = player.track
     var options by remember { mutableStateOf(false) }
+    var showTrackOptions by remember { mutableStateOf(false) }
     var addPlaylist by remember { mutableStateOf(false) }
     var panel by remember { mutableStateOf("") }
     var queueName by remember { mutableStateOf("") }
@@ -79,67 +80,97 @@ private val Accent = Color(0xFFFF173D)
     DisposableEffect(Unit) { onDispose { settleJob?.cancel(); sharedPull.floatValue = 0f } }
     val dragThreshold = with(LocalDensity.current) { 86.dp.toPx() }
     val dragState = rememberDraggableState { delta -> sharedPull.floatValue = (sharedPull.floatValue + delta).coerceIn(0f, dragThreshold * 2.5f) }
-    BoxWithConstraints(Modifier.fillMaxSize()) {
+    fun finishPlayerDrag(velocity: Float) {
+        if (sharedPull.floatValue >= dragThreshold || velocity > 1400f && sharedPull.floatValue > dragThreshold / 3f) onMinimize()
+        else settleJob = dragScope.launch {
+            androidx.compose.animation.core.Animatable(sharedPull.floatValue).animateTo(0f, spring(dampingRatio = 1f, stiffness = 330f)) {
+                sharedPull.floatValue = value
+            }
+        }
+    }
+    val density = LocalDensity.current
+    BoxWithConstraints(Modifier.fillMaxSize().graphicsLayer {
+        val progress = motionProgress.coerceIn(0f, 1f)
+        val targetScaleY = (with(density) { 72.dp.toPx() } / size.height.coerceAtLeast(1f)).coerceIn(.06f, .16f)
+        scaleX = .94f + .06f * progress
+        scaleY = targetScaleY + (1f - targetScaleY) * progress
+        translationY = (size.height * .5f - with(density) { 108.dp.toPx() }) * (1f - progress)
+        alpha = progress
+        shape = RoundedCornerShape(if (progress < .5f) 36.dp else 20.dp)
+        clip = true
+    }) {
     val availableHeight = maxHeight
     val availableWidth = maxWidth
-    val artworkSize = minOf(maxWidth-48.dp,maxHeight*.38f).coerceIn(112.dp,320.dp)
+    val compactTransport = availableWidth < 360.dp
+    val sideControlSize = if (compactTransport) 40.dp else 48.dp
+    val skipControlSize = if (compactTransport) 60.dp else 70.dp
+    val playControlSize = if (compactTransport) 72.dp else if (availableHeight < 600.dp) 76.dp else 84.dp
+    val skipGlyphSize = if (compactTransport) 39.dp else 43.dp
+    val artworkSize = minOf(maxWidth-40.dp,maxHeight*.43f).coerceIn(128.dp,360.dp)
     val cover=remember(track,library.tracks) {
-        if(track.artwork.isNotBlank() || track.album=="Unknown album")track
-        else library.tracks.firstOrNull {it.album==track.album && it.artwork.isNotBlank()}?.let {track.copy(artwork=it.artwork)} ?: track
+        val savedTrack = library.tracks.firstOrNull { it.id == track.id && it.artwork.isNotBlank() }
+        when {
+            track.artwork.isNotBlank() -> track
+            savedTrack != null -> track.copy(artwork = savedTrack.artwork)
+            else -> {
+                val hasSpecificAlbum = track.album.isNotBlank() && track.album != "Unknown album"
+                val hasSpecificArtist = track.artist.isNotBlank() && track.artist != "Unknown artist"
+                val match = if (hasSpecificAlbum && hasSpecificArtist) library.tracks.firstOrNull {
+                    it.artwork.isNotBlank() && it.album.equals(track.album, ignoreCase = true) && it.artist.equals(track.artist, ignoreCase = true)
+                } else null
+                match?.let { track.copy(artwork = it.artwork) } ?: track
+            }
+        }
     }
     Column(Modifier.fillMaxSize().graphicsLayer {
         val displacement = sharedPull.floatValue
-        translationY = displacement
-        scaleX = 1f - .035f * (displacement / dragThreshold).coerceIn(0f, 1f)
-        scaleY = 1f - .015f * (displacement / dragThreshold).coerceIn(0f, 1f)
-    }.verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 66.dp, bottom = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-
-        Surface(Modifier.fillMaxWidth().padding(top = if (availableHeight > 650.dp) 22.dp else 4.dp), shape = RoundedCornerShape(24.dp), color = Color.Transparent) {
-            Column(Modifier.padding(horizontal = 0.dp, vertical = 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Box(Modifier.fillMaxWidth().height(artworkSize).testTag("player-artwork-gesture").draggable(
+        val pullFraction = (displacement / dragThreshold).coerceIn(0f, 1f) * motionProgress.coerceIn(0f, 1f)
+        translationY = displacement * motionProgress.coerceIn(0f, 1f)
+        scaleX = 1f - .035f * pullFraction
+        scaleY = 1f - .015f * pullFraction
+    }.verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 2.dp, bottom = 12.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        // Keep the floating actions in layout flow so they can never cover the artwork.
+        ContextControls(onBack = onMinimize, onAdd = { addPlaylist = true }, onMore = { options = true }, backLabel = "Minimize player", addLabel = "Add to playlist", backIcon = Icons.Rounded.KeyboardArrowDown)
+        Column(Modifier.fillMaxWidth().padding(bottom = 8.dp).draggable(
+            state = dragState, orientation = Orientation.Vertical,
+            onDragStarted = { settleJob?.cancel() }, onDragStopped = { velocity -> finishPlayerDrag(velocity) }
+        ), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(5.dp)) {
+            Box(Modifier.width(34.dp).height(3.dp).clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.onSurface.copy(alpha = .36f)))
+            Text("Playing from $source", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+        }
+        Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.size(artworkSize).testTag("player-artwork-gesture").draggable(
                     state = dragState, orientation = Orientation.Vertical,
                     onDragStarted = { settleJob?.cancel() },
-                    onDragStopped = { velocity ->
-                        if (sharedPull.floatValue >= dragThreshold || velocity > 1400f && sharedPull.floatValue > dragThreshold / 3f) onMinimize()
-                        else settleJob = dragScope.launch {
-                            androidx.compose.animation.core.Animatable(sharedPull.floatValue).animateTo(0f, spring(dampingRatio = .9f, stiffness = 500f)) {
-                                sharedPull.floatValue = value
-                            }
-                        }
-                    }), contentAlignment = Alignment.Center) {
-                    TrackArtwork(cover,Modifier.size(artworkSize).clip(RoundedCornerShape(12.dp)).testTag("player-artwork"))
+                    onDragStopped = { velocity -> finishPlayerDrag(velocity) }), contentAlignment = Alignment.Center) {
+                    TrackArtwork(cover,Modifier.size(artworkSize).clip(RoundedCornerShape(20.dp)).shadow(20.dp, RoundedCornerShape(20.dp)).testTag("player-artwork"))
                 }
-                Row(Modifier.fillMaxWidth().padding(top = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Row(Modifier.fillMaxWidth().padding(top = 9.dp), verticalAlignment = Alignment.CenterVertically) {
                     Crossfade(track, modifier = Modifier.weight(1f), animationSpec = tween(180), label = "Song title") { shown ->
                         Column {
-                            Text(shown.title, fontSize = if (availableWidth < 340.dp) 20.sp else 23.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, maxLines = if (availableHeight < 560.dp) 1 else 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurface)
-                            Text(shown.artist, fontSize = 15.sp, modifier = Modifier.padding(top = 5.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            Text(shown.title, Modifier.fillMaxWidth().basicMarquee(initialDelayMillis = 850, repeatDelayMillis = 1_100, velocity = 28.dp), fontSize = if (availableWidth < 340.dp) 20.sp else 23.sp, lineHeight = 28.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Clip, color = MaterialTheme.colorScheme.onSurface)
+                            Text(shown.artist, Modifier.fillMaxWidth().padding(top = 5.dp).basicMarquee(initialDelayMillis = 1_000, repeatDelayMillis = 1_100, velocity = 24.dp), fontSize = 15.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, softWrap = false, overflow = androidx.compose.ui.text.style.TextOverflow.Clip)
                         }
                     }
                     PlayerControl(if (track.id in library.favorites) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, "Toggle favorite", { MusicRepository.favorite(track.id) }, active = track.id in library.favorites)
                 }
                 PlayerSeekSection(track.id)
-                Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 4.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                    PlayerControl(Icons.Rounded.Shuffle, "Shuffle ${if (player.shuffle) "on" else "off"}", MusicPlayback::shuffle, active = player.shuffle, glyph = 20.dp)
-                    PlayerControl(Icons.Rounded.SkipPrevious, "Previous track", MusicPlayback::previous, glyph = 32.dp)
-                    Box(Modifier.size(if (availableHeight < 600.dp) 64.dp else 72.dp).clip(CircleShape).glassTouch(MusicPlayback::toggle).testTag("primary-playback")
+                Row(Modifier.fillMaxWidth().padding(top = 3.dp, bottom = 2.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    CurvedPlaybackControl("Shuffle ${if (player.shuffle) "on" else "off"}", MusicPlayback::shuffle, active = player.shuffle, size = sideControlSize, glyph = if (compactTransport) 22.dp else 25.dp, style = CurvedPlaybackGlyph.Shuffle)
+                    PlayerControl(Icons.Rounded.FastRewind, "Previous track", MusicPlayback::previous, size = skipControlSize, glyph = skipGlyphSize)
+                    Box(Modifier.size(playControlSize).clip(CircleShape).glassTouch(MusicPlayback::toggle).testTag("primary-playback")
                         .semantics { contentDescription = if (player.playing) "Pause" else "Play" }, contentAlignment = Alignment.Center) {
-                        Icon(if (player.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, Modifier.size(46.dp), tint = MaterialTheme.colorScheme.onSurface)
+                        Icon(if (player.playing) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, null, Modifier.size(if (compactTransport) 51.dp else 58.dp), tint = MaterialTheme.colorScheme.onSurface)
                     }
-                    PlayerControl(Icons.Rounded.SkipNext, "Next track", MusicPlayback::next, enabled = player.queue.size > 1, glyph = 32.dp)
-                    PlayerControl(if (player.repeat == 1) Icons.Rounded.RepeatOne else Icons.Rounded.Repeat, "Repeat ${listOf("off", "one", "all")[player.repeat]}", MusicPlayback::repeat, active = player.repeat > 0, glyph = 20.dp)
+                    PlayerControl(Icons.Rounded.FastForward, "Next track", MusicPlayback::next, enabled = player.queue.size > 1, size = skipControlSize, glyph = skipGlyphSize)
+                    LoopModeControl("Repeat ${listOf("off", "one", "all")[player.repeat]}", MusicPlayback::repeat, active = player.repeat > 0, repeatOne = player.repeat == 1, size = sideControlSize, glyph = if (compactTransport) 22.dp else 25.dp)
                 }
-
-            }
         }
-        Spacer(Modifier.height(10.dp))
+        Spacer(Modifier.height(4.dp))
         PlayerVolume(showOutputAction = false)
         PlayerActionRow(onLyrics = {panel="Lyrics"},onOutput = {panel="Output"},onQueue = {panel="Queue"})
         if(player.sleepMode!="Off")PlayerSleepStatus(player)
         Spacer(Modifier.height(12.dp))
-    }
-    Box(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 6.dp).testTag("fixed-player-glass-actions")) {
-        ContextControls(onBack = onMinimize, onAdd = { addPlaylist = true }, onMore = { options = true }, backLabel = "Minimize player", addLabel = "Add to playlist", backIcon = Icons.Rounded.KeyboardArrowDown)
     }
     if (panel.isNotEmpty()) GlassSheet(onDismissRequest = { panel = "" }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Box(Modifier.fillMaxWidth()) {
@@ -148,18 +179,48 @@ private val Accent = Color(0xFFFF173D)
             "Queue" -> QueuePanel(onSave = { saveQueue = true }, onDownload = onDownload)
             "Lyrics" -> LyricsPanel(track)
             "Output" -> AudioOutputPanel()
+            "Info" -> Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Track information", style = MaterialTheme.typography.titleLarge)
+                listOf("Title" to track.title, "Artist" to track.artist, "Album" to track.album, "File" to track.filename, "Format" to track.format).forEach { (label, value) ->
+                    if (value.isNotBlank()) Column {
+                        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(value, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
             "Audio" -> Column { MusicActionRow("All player settings", Icons.Rounded.Settings, { panel = ""; onSettings() }, forward = true); PlayerSettingsScreen(audioOnly = true) }
             "Timer" -> SleepPanel { panel = "" }
         }
         }
     }
-    if (options) TrackOptions(track, onDismiss = { options = false }, onPlaylist = { options = false; addPlaylist = true }, onDownload = onDownload, extraActions = listOf(
-        "Lyrics" to { options = false; panel = "Lyrics" },
-        "Sleep timer" to { options = false; panel = "Timer" },
-        "Audio output" to { options = false; panel = "Output" },
-        "Skip backward ${library.settings.skipBackward}s" to { MusicPlayback.seek(MusicPlayback.state.value.position - library.settings.skipBackward * 1000); options = false },
-        "Skip forward ${library.settings.skipForward}s" to { MusicPlayback.seek(MusicPlayback.state.value.position + library.settings.skipForward * 1000); options = false }
-    ))
+    if (options) {
+        val popupWidth = (LocalConfiguration.current.screenWidthDp - 48).coerceAtLeast(260).dp
+        GlassActionPopover("PLAYER OPTIONS", onDismiss = { options = false }, panelWidth = popupWidth) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                TrackArtwork(track, Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)))
+                Column(Modifier.weight(1f)) {
+                    Text(track.title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                    Text(track.artist, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = Color.White.copy(alpha = .12f))
+            MusicActionRow("Play next", Icons.Rounded.PlaylistPlay, { MusicPlayback.enqueue(listOf(track.id), true); options = false }, enabled = track.available)
+            MusicActionRow("Add to queue", Icons.Rounded.QueueMusic, { MusicPlayback.enqueue(listOf(track.id)); options = false }, enabled = track.available)
+            MusicActionRow("Add to playlist", Icons.Rounded.PlaylistAdd, { options = false; addPlaylist = true })
+            MusicActionRow(if (track.id in library.favorites) "Remove favorite" else "Add favorite", if (track.id in library.favorites) Icons.Rounded.Favorite else Icons.Rounded.FavoriteBorder, { MusicRepository.favorite(track.id); options = false })
+            HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = Color.White.copy(alpha = .12f))
+            MusicActionRow("Lyrics", Icons.Rounded.Lyrics, { options = false; panel = "Lyrics" })
+            MusicActionRow("Sleep timer", Icons.Rounded.Schedule, { options = false; panel = "Timer" })
+            MusicActionRow("Audio output", Icons.Rounded.DevicesOther, { options = false; panel = "Output" })
+            MusicActionRow("Skip backward ${library.settings.skipBackward}s", Icons.Rounded.FastRewind, { MusicPlayback.seek(MusicPlayback.state.value.position - library.settings.skipBackward * 1000); options = false })
+            MusicActionRow("Skip forward ${library.settings.skipForward}s", Icons.Rounded.FastForward, { MusicPlayback.seek(MusicPlayback.state.value.position + library.settings.skipForward * 1000); options = false })
+            HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 4.dp), color = Color.White.copy(alpha = .12f))
+            MusicActionRow("Track information", Icons.Rounded.Info, { options = false; panel = "Info" })
+            if (track.downloadId != null) MusicActionRow("Open download details", Icons.Rounded.Download, { options = false; onDownload(track.downloadId) })
+            MusicActionRow("Manage file and library entry", Icons.Rounded.FolderOpen, { options = false; showTrackOptions = true })
+        }
+    }
+    if (showTrackOptions) TrackOptions(track, onDismiss = { showTrackOptions = false }, onPlaylist = { showTrackOptions = false; addPlaylist = true }, onDownload = onDownload)
     if (addPlaylist) PlaylistPicker(listOf(track.id)) { addPlaylist = false }
     if (saveQueue) GlassConfirmDialog(onDismissRequest = { saveQueue = false }, title = { Text("Save queue as playlist") }, text = { OutlinedTextField(queueName, { queueName = it }, label = { Text("Playlist name") }) },
         confirmButton = { TextButton(enabled = queueName.isNotBlank(), onClick = { MusicRepository.playlist(queueName, player.queue); saveQueue = false }) { Text("Save") } }, dismissButton = { TextButton(onClick = { saveQueue = false }) { Text("Cancel") } })

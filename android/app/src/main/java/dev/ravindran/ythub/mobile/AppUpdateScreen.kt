@@ -1,0 +1,118 @@
+package dev.ravindran.ythub.mobile
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import kotlinx.coroutines.launch
+
+@Composable
+internal fun AppUpdateCheckerScreen() {
+    val scope = rememberCoroutineScope()
+    var checking by remember { mutableStateOf(false) }
+    var result by remember { mutableStateOf<AppUpdateStatus?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    suspend fun check() {
+        checking = true
+        error = null
+        runCatching { AppUpdater.checkForUpdate() }.onSuccess { result = it }.onFailure { error = it.message ?: "Could not check for updates." }
+        checking = false
+    }
+    LaunchedEffect(Unit) { check() }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), tintAlpha = .2f) {
+            Column(Modifier.fillMaxWidth().padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Icon(Icons.Filled.SystemUpdate, null, tint = MaterialTheme.colorScheme.primary)
+                    Column {
+                        Text("Software Update", style = MaterialTheme.typography.titleLarge)
+                        Text("YTHub ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                when {
+                    checking -> Text("Checking GitHub Releases…", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    error != null -> Text(error!!, color = MaterialTheme.colorScheme.error)
+                    result == AppUpdateStatus.NoStableRelease -> Text("No stable release has been published yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    result == AppUpdateStatus.UpToDate -> Text("You're up to date.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    result is AppUpdateStatus.Available -> Text("YTHub ${(result as AppUpdateStatus.Available).release.versionName} is ready to download.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+                (result as? AppUpdateStatus.Available)?.let { UpdateReleaseActions(it.release) }
+                OutlinedButton(enabled = !checking, onClick = { scope.launch { check() } }, modifier = Modifier.fillMaxWidth()) {
+                    Text(if (checking) "Checking…" else "Check for updates")
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun AppUpdateAvailableDialog(release: YTHubRelease, onRemindLater: () -> Unit) {
+    val height = LocalConfiguration.current.screenHeightDp.dp
+    val width = LocalConfiguration.current.screenWidthDp.dp
+    Dialog(onDismissRequest = onRemindLater, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Column(Modifier.width(minOf(width - 48.dp, 480.dp)).heightIn(max = height * .84f).clip(RoundedCornerShape(34.dp))
+            .then(Modifier), verticalArrangement = Arrangement.spacedBy(0.dp)) {
+            LiquidGlassPanel(Modifier.fillMaxWidth(), radius = 34.dp, tintAlpha = .22f) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("Software Update", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                    Text("YTHub ${release.versionName} is available to download.", Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodyLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    HorizontalDivider(Modifier.padding(vertical = 14.dp), color = Color.White.copy(alpha = .16f))
+                    Text("What’s new", Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Column(Modifier.fillMaxWidth().heightIn(max = height * .40f).verticalScroll(rememberScrollState()).padding(top = 8.dp, bottom = 8.dp)) {
+                        Text(release.notes.ifBlank { "Performance improvements and fixes." }, style = MaterialTheme.typography.bodyMedium)
+                    }
+                    HorizontalDivider(color = Color.White.copy(alpha = .16f))
+                    UpdateReleaseActions(release, showNotes = false)
+                    TextButton(onClick = onRemindLater, modifier = Modifier.fillMaxWidth()) { Text("Remind me later") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun UpdateReleaseActions(release: YTHubRelease, showNotes: Boolean = true) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    var downloading by remember { mutableStateOf(false) }
+    var progress by remember { mutableFloatStateOf(0f) }
+    var apk by remember(release.versionName) { mutableStateOf<java.io.File?>(null) }
+    var message by remember { mutableStateOf("") }
+    var failed by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        if (showNotes && release.notes.isNotBlank()) Text(release.notes, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall, color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+        if (downloading) LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
+        Button(enabled = !downloading, onClick = {
+            scope.launch {
+                failed = false
+                if (apk == null) {
+                    downloading = true
+                    message = "Downloading YTHub ${release.versionName}…"
+                    runCatching { AppUpdater.download(context, release) { progress = it }.also { AppUpdater.verifyUpdateSigner(context, it) } }
+                        .onSuccess { apk = it; message = "Download complete. Android will ask you to confirm installation."; progress = 0f }
+                        .onFailure { message = it.message ?: "Download failed."; failed = true; progress = 0f }
+                    downloading = false
+                } else {
+                    runCatching { AppUpdater.launchInstaller(context, apk!!) }
+                        .onSuccess { opened -> message = if (opened) "Confirm the update in Android's installer." else "Allow YTHub to install apps, return here, and tap Install update." }
+                        .onFailure { message = it.message ?: "Could not open Android's installer."; failed = true }
+                }
+            }
+        }, modifier = Modifier.fillMaxWidth()) { Text(if (apk == null) "Download now" else "Install update") }
+    }
+}

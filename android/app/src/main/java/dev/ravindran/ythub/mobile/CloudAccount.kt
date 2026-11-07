@@ -21,7 +21,7 @@ import javax.crypto.SecretKey
 import javax.crypto.spec.GCMParameterSpec
 
 /** One account service; the local player never depends on this service. */
-data class AccountState(val status: String = "Initializing", val userId: String? = null, val email: String = "", val verified: Boolean = false, val message: String = "")
+data class AccountState(val status: String = "Initializing", val userId: String? = null, val email: String = "", val verified: Boolean = false, val message: String = "", val displayName: String = "", val avatarUrl: String = "")
 object CloudAccount {
     private lateinit var context: Context
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -83,7 +83,11 @@ object CloudAccount {
         else mutable.value = AccountState("Session expired", message = "Reconnect to verify your session.")
     }
     private fun publish(user: JsonObject, status: String) {
-        mutable.value = AccountState(status, user.get("id").asString, user.get("email")?.asString.orEmpty(), user.get("email_confirmed_at")?.isJsonNull == false)
+        val metadata = user.getAsJsonObject("user_metadata")
+        fun metadataValue(vararg keys: String) = keys.firstNotNullOfOrNull { key -> metadata?.get(key)?.takeUnless { it.isJsonNull }?.asString?.takeIf { it.isNotBlank() } }.orEmpty()
+        mutable.value = AccountState(status, user.get("id").asString, user.get("email")?.asString.orEmpty(), user.get("email_confirmed_at")?.isJsonNull == false,
+            displayName = metadataValue("display_name", "full_name", "name"),
+            avatarUrl = metadataValue("avatar_url", "picture"))
     }
     private suspend fun refreshIfNeeded() {
         val saved = session ?: error("Sign in first")
@@ -143,6 +147,13 @@ object CloudAccount {
         val actor = state.value.userId ?: error("Sign in first")
         val result = request("/auth/v1/user", "PUT", json("password" to value), token(actor))
         mutex.withLock { check(session?.getAsJsonObject("user")?.get("id")?.asString == actor) { "Account changed" }; session?.add("user", result); save(); publish(result,"Authenticated") }
+    }
+    suspend fun updateDisplayName(value: String) = withContext(Dispatchers.IO) {
+        val name = value.trim().take(100)
+        require(name.isNotBlank()) { "Enter a display name" }
+        val actor = state.value.userId ?: error("Sign in first")
+        val result = request("/auth/v1/user", "PUT", JsonObject().apply { add("data", JsonObject().apply { addProperty("display_name", name) }) }, token(actor))
+        mutex.withLock { check(session?.getAsJsonObject("user")?.get("id")?.asString == actor) { "Account changed" }; session?.add("user", result); save(); publish(result, "Authenticated") }
     }
     suspend fun forgetDeletedAccount() { mutex.withLock { session=null;save();mutable.value=AccountState("Signed out") } }
     suspend fun signOut(others: Boolean = false) {

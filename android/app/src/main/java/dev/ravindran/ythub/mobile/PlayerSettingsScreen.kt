@@ -25,7 +25,6 @@ import kotlinx.coroutines.withContext
     var confirmation by remember { mutableStateOf("") }
     fun change(transform: (PlayerPreferences) -> PlayerPreferences) { MusicRepository.settings(transform(MusicRepository.state.value.settings)) }
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, bottom = if (audioOnly) 32.dp else LocalMusicBottomPadding.current + 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(if (audioOnly) "Audio settings" else "Player settings", style = MaterialTheme.typography.headlineLarge)
         if (!audioOnly) {
             Text("Make every listen yours.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 12.dp))
             MusicSettingsSection("Playback", "Speed, position and skip controls", true) {

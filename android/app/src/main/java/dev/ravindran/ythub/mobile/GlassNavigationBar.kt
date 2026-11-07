@@ -8,6 +8,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -37,6 +38,7 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -62,6 +64,7 @@ internal data class GlassScene(val layer: GraphicsLayer, val origin: Offset)
 internal val LocalDockGlass = staticCompositionLocalOf<DockGlassState?> { null }
 internal val LocalAccountAction = staticCompositionLocalOf<(() -> Unit)?> { null }
 internal val LocalGlassScene = staticCompositionLocalOf<GlassScene?> { null }
+internal val LocalPopoverGlassBackdrop = staticCompositionLocalOf<GraphicsLayer?> { null }
 private val LocalGlassInteraction = staticCompositionLocalOf<MutableInteractionSource?> { null }
 
 /** Bounded feedback without the rectangular Material ripple. Haptics respect system settings. */
@@ -115,11 +118,11 @@ internal fun GlassControlSurface(modifier: Modifier = Modifier, dark: Boolean = 
     val highlight by animateFloatAsState(if (pressed) .10f else if (hovered) .04f else 0f, spring(stiffness = 600f), label = "Glass highlight")
     val highlightColor = MaterialTheme.colorScheme.onSurface
     val glassLayer = backdrop ?: LocalGlassScene.current?.layer ?: ambientBackdrop
-    val useReference = Build.VERSION.SDK_INT >= 31 && dockBackdrop != null
+    val useReference = Build.VERSION.SDK_INT >= 31 && (dockBackdrop != null || backdrop != null)
     val fill = if (dark) Color(0xFF121212) else Color(0xFFFAFAFA)
     val rim = Brush.verticalGradient(listOf(Color.White.copy(alpha=if(dark).24f else .75f),Color.White.copy(alpha=.035f),Color.White.copy(alpha=.12f)))
     Box(modifier.graphicsLayer { scaleX = 1f - .018f * compression; scaleY = 1f - .035f * compression }
-        .then(if (useReference) Modifier.clip(shape).referenceGlass(shape, dark, glassLayer, if (backdrop != null) contentOrigin else Offset.Zero, dockBackdrop, tintAlpha ?: .20f)
+        .then(if (useReference) Modifier.clip(shape).referenceGlass(shape, dark, glassLayer, if (backdrop != null) contentOrigin else LocalGlassScene.current?.origin ?: Offset.Zero, dockBackdrop, tintAlpha ?: .20f)
             else Modifier.shadow(3.dp,shape).clip(shape).border(.5.dp,rim,shape))
         .onGloballyPositioned { origin.value = if (screenPosition) it.positionOnScreen() else it.positionInRoot() }) {
         if(!useReference) Box(Modifier.matchParentSize()) {
@@ -132,7 +135,7 @@ internal fun GlassControlSurface(modifier: Modifier = Modifier, dark: Boolean = 
 }
 
 @Composable
-internal fun FloatingPlaybackDock(destination: String, onDownloads: () -> Unit, onHome: () -> Unit, onPlayer: () -> Unit, onLibrary: () -> Unit, onSearch: () -> Unit, dark: Boolean, dockBackdrop: DockGlassState) {
+internal fun FloatingPlaybackDock(destination: String, onExplore: () -> Unit, onHome: () -> Unit, onPlayer: () -> Unit, onLibrary: () -> Unit, onSearch: () -> Unit, dark: Boolean, dockBackdrop: DockGlassState) {
     val dockState = remember { MusicPlayback.state.map { it.track to it.playing }.distinctUntilChanged() }
     val player by dockState.collectAsStateWithLifecycle(initialValue = remember { MusicPlayback.state.value.let { it.track to it.playing } })
     val track = player.first
@@ -148,34 +151,38 @@ internal fun FloatingPlaybackDock(destination: String, onDownloads: () -> Unit, 
                         Text(track.artist, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
-                GlassIconButton(Icons.Rounded.SkipPrevious, "Previous track", MusicPlayback::previous)
                 GlassIconButton(if (player.second) Icons.Rounded.Pause else Icons.Rounded.PlayArrow, if (player.second) "Pause" else "Play", MusicPlayback::toggle)
-                GlassIconButton(Icons.Rounded.SkipNext, "Next track", MusicPlayback::next)
+                GlassIconButton(Icons.Rounded.FastForward, "Next track", MusicPlayback::next)
             }
         }
-        GlassControlSurface(Modifier.fillMaxWidth().heightIn(min = 62.dp), dark, dockBackdrop = dockBackdrop, tintAlpha = tint, flexible = false) {
-            BoxWithConstraints(Modifier.fillMaxWidth().padding(4.dp)) {
-                val tabs = listOf(Triple("Home", Icons.Rounded.Home, onHome), Triple("Downloads", Icons.Rounded.Download, onDownloads), Triple("Library", Icons.Rounded.LibraryMusic, onLibrary), Triple("Search", Icons.Rounded.Search, onSearch))
+        GlassControlSurface(Modifier.fillMaxWidth().height(62.dp), dark, dockBackdrop = dockBackdrop, tintAlpha = tint, flexible = false) {
+            BoxWithConstraints(Modifier.fillMaxSize().padding(2.dp)) {
+                val tabs = listOf(Triple("Home", Icons.Rounded.Home, onHome), Triple("Explore", Icons.Rounded.GridView, onExplore), Triple("Library", Icons.Rounded.LibraryMusic, onLibrary), Triple("Search", Icons.Rounded.Search, onSearch))
                 val selectedIndex = tabs.indexOfFirst { it.first == destination }
                 val width = (maxWidth - 18.dp) / 4
                 val target = (width + 6.dp) * selectedIndex.coerceAtLeast(0)
                 val position by animateDpAsState(target, spring(dampingRatio = .68f, stiffness = 420f), label = "Liquid tab travel")
-                val lag = (kotlin.math.abs((target - position).value) / width.value.coerceAtLeast(1f)).coerceIn(0f, 1f)
-                if (selectedIndex >= 0) Box(Modifier.offset(x = position).width(width).height(54.dp).graphicsLayer {
-                    scaleX = 1f + lag * .18f; scaleY = 1f - lag * .09f
-                }.testTag("nav-selection").clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = if(dark) .14f else .5f)).border(.5.dp, Color.White.copy(alpha = .12f), RoundedCornerShape(50)))
+                if (selectedIndex >= 0) Box(Modifier.offset(x = position + 3.dp).width((width - 6.dp).coerceAtLeast(1.dp)).fillMaxHeight().padding(vertical = 3.dp)
+                    .testTag("nav-selection").clip(RoundedCornerShape(50)).background(Color.White.copy(alpha = if(dark) .14f else .5f)).border(.5.dp, Color.White.copy(alpha = .12f), RoundedCornerShape(50)))
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
                     tabs.forEach { (label, icon, action) ->
                         val active = destination == label
                         val ink = (if(dark) Color.White else Color.Black).copy(alpha = if(active) 1f else .65f)
                         Column(Modifier.weight(1f).clip(RoundedCornerShape(50)).semantics { selected = active }.glassTouch(action).padding(vertical = 5.dp).testTag("nav-$label"), horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(icon, label, Modifier.size(28.dp), tint = ink)
-                            Text(if (label == "Downloads") "Saved" else label, fontSize = 11.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = ink)
+                            if (label == "Library") LibraryTabGlyph(ink) else Icon(icon, label, Modifier.size(28.dp), tint = ink)
+                            Text(label, fontSize = 11.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, color = ink)
                         }
                     }
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun LibraryTabGlyph(tint: Color) {
+    Canvas(Modifier.size(28.dp).semantics { contentDescription = "Library" }) {
+        scale(size.width / 512f, size.height / 512f, Offset.Zero) { drawPath(BitChordLibraryTabPath, tint) }
     }
 }
 
@@ -194,7 +201,12 @@ internal fun ContextControls(onBack: () -> Unit, onAdd: () -> Unit, onMore: () -
 
 @Composable
 internal fun GlassIconButton(icon: ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, glyph: Dp = 21.dp) {
-    Box(modifier.size(48.dp).clip(RoundedCornerShape(50)).glassTouch(onClick, enabled)
+    val popoverHost = LocalGlassPopoverHost.current
+    var bounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
+    Box(modifier.size(48.dp).onGloballyPositioned { bounds = it.boundsInRoot() }.clip(RoundedCornerShape(50)).glassTouch({
+        if (enabled && !bounds.isEmpty) popoverHost?.recordTrigger(bounds)
+        onClick()
+    }, enabled)
         .semantics { contentDescription = label }, contentAlignment = Alignment.Center) {
         Icon(icon, null, Modifier.size(glyph), tint = MaterialTheme.colorScheme.onSurface.copy(alpha = if (enabled) 1f else .3f))
     }
@@ -203,11 +215,14 @@ internal fun GlassIconButton(icon: ImageVector, label: String, onClick: () -> Un
 /** Anchored, focusable popover: outside touch and Android Back dismiss it. */
 @Composable
 internal fun GlassActionPopover(title: String, onDismiss: () -> Unit, backdrop: GraphicsLayer? = null, contentOrigin: Offset = Offset.Zero,
-    content: @Composable ColumnScope.() -> Unit) {
+    panelWidth: Dp = 252.dp, content: @Composable ColumnScope.() -> Unit) {
     val scene = LocalGlassScene.current
-    GlassPopover(onDismiss) {
-        GlassMenuBlock(backdrop ?: scene?.layer, if (backdrop == null) scene?.origin ?: contentOrigin else contentOrigin) {
-            Column(Modifier.heightIn(max = (LocalConfiguration.current.screenHeightDp.dp - 170.dp).coerceAtLeast(200.dp)).verticalScroll(rememberScrollState())) {
+    val popoverBackdrop = LocalPopoverGlassBackdrop.current
+    GlassPopover(onDismiss, panelWidth = panelWidth) {
+        GlassMenuBlock(backdrop ?: popoverBackdrop ?: scene?.layer, if (backdrop == null) scene?.origin ?: contentOrigin else contentOrigin) {
+            val screenHeight = LocalConfiguration.current.screenHeightDp.dp
+            val menuMaxHeight = minOf(screenHeight - 150.dp, screenHeight * .70f).coerceAtLeast(220.dp)
+            Column(Modifier.heightIn(max = menuMaxHeight).verticalScroll(rememberScrollState())) {
             Text(title, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp))
             content()
@@ -217,15 +232,15 @@ internal fun GlassActionPopover(title: String, onDismiss: () -> Unit, backdrop: 
 }
 
 @Composable
-internal fun GlassPopover(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun GlassPopover(onDismiss: () -> Unit, panelWidth: Dp = 252.dp, content: @Composable ColumnScope.() -> Unit) {
     val density = LocalDensity.current
     val available = (LocalConfiguration.current.screenWidthDp.dp - 32.dp).coerceAtLeast(180.dp)
     val host = LocalGlassPopoverHost.current
     val view = LocalView.current
     val panel: @Composable () -> Unit = {
         val reveal = remember { Animatable(0f) }
-        LaunchedEffect(Unit) { reveal.animateTo(1f, spring(dampingRatio = .82f, stiffness = 520f)) }
-        Column(Modifier.widthIn(max = available).width(252.dp).padding(4.dp).graphicsLayer {
+        LaunchedEffect(Unit) { reveal.animateTo(1f, spring(dampingRatio = .9f, stiffness = 650f)) }
+        Column(Modifier.widthIn(max = available).width(panelWidth.coerceAtMost(available)).padding(4.dp).graphicsLayer {
             alpha = reveal.value.coerceIn(0f, 1f)
             scaleX = .88f + .12f * reveal.value
             scaleY = .80f + .20f * reveal.value
@@ -240,7 +255,7 @@ internal fun GlassPopover(onDismiss: () -> Unit, content: @Composable ColumnScop
 
 @Composable
 internal fun GlassMenuBlock(backdrop: GraphicsLayer? = null, contentOrigin: Offset = Offset.Zero, content: @Composable ColumnScope.() -> Unit) {
-    LiquidGlassPanel(Modifier.fillMaxWidth(), backdrop = backdrop, contentOrigin = contentOrigin, radius = 28.dp) {
+    LiquidGlassPanel(Modifier.fillMaxWidth(), backdrop = backdrop, contentOrigin = contentOrigin, radius = 28.dp, tintAlpha = .16f) {
         Column(Modifier.fillMaxWidth().padding(6.dp), content = content)
     }
 }
@@ -253,13 +268,9 @@ internal fun PairedGlassActions(onAdd: () -> Unit, onMore: () -> Unit, addLabel:
         backdrop = backdrop ?: scene?.layer,
         contentOrigin = if (backdrop == null) scene?.origin ?: contentOrigin else contentOrigin) {
         // Aligned header actions share a single glass capsule and consistent touch targets.
-        Row(Modifier.padding(horizontal = 3.dp)) {
-            GlassIconButton(Icons.Rounded.Add, addLabel, onAdd, glyph = 22.dp)
-            Box(Modifier.width(.5.dp).height(20.dp).align(Alignment.CenterVertically).background(Color.White.copy(alpha = .10f)))
+        Row(Modifier.padding(horizontal = 3.dp), verticalAlignment = Alignment.CenterVertically) {
             LocalAccountAction.current?.let { account ->
-                Box(Modifier.size(48.dp).clip(RoundedCornerShape(50)).glassTouch(account).testTag("account-avatar").semantics {contentDescription="Account"},contentAlignment=Alignment.Center) {
-                    Box(Modifier.size(30.dp).clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.onSurface.copy(alpha=.06f)),contentAlignment=Alignment.Center) {Icon(Icons.Rounded.AccountCircle,null,Modifier.size(28.dp),tint=MaterialTheme.colorScheme.onSurface.copy(alpha=.88f))}
-                }
+                AccountAvatar(account, Modifier.testTag("account-avatar"), size = 40.dp)
                 Box(Modifier.width(.5.dp).height(20.dp).align(Alignment.CenterVertically).background(Color.White.copy(alpha=.10f)))
             }
             GlassIconButton(Icons.Rounded.MoreHoriz, moreLabel, onMore, glyph = 22.dp)

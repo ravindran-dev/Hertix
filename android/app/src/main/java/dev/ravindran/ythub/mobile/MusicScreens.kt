@@ -27,6 +27,7 @@ import androidx.compose.material.icons.rounded.*
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -52,6 +53,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -62,6 +64,7 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 
@@ -79,10 +82,51 @@ private val MusicShape = MobileUi.card
         drawCircle(Color.White.copy(alpha=.035f),radius=size.minDimension*.55f,center=Offset(size.width*.10f,size.height*.95f))
     },contentAlignment=Alignment.Center) {
         Icon(Icons.Rounded.Album,null,Modifier.fillMaxSize(.34f),tint=Color.White.copy(alpha=.55f))
-        if(track?.artwork?.isNotBlank()==true) AsyncImage(remember(track.artwork) {File(track.artwork)},"Album artwork",Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
+        if(track?.artwork?.isNotBlank()==true) AsyncImage(remember(track.artwork) {
+            when {
+                track.artwork.startsWith("content://") -> Uri.parse(track.artwork)
+                track.artwork.startsWith("http://") || track.artwork.startsWith("https://") -> track.artwork
+                else -> File(track.artwork)
+            }
+        },"Album artwork",Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
     }
 }
-@Composable internal fun MusicLibraryScreen(onDetailChanged: (Boolean) -> Unit = {}, onPlayer: () -> Unit, onDownload: (String) -> Unit, rootRequested: Boolean = false, onRootConsumed: () -> Unit = {}, requestedPlaylist: String? = null, onPlaylistConsumed: () -> Unit = {}, searchRequested: Boolean = false, onSearchChanged: (Boolean) -> Unit = {}, onOnline: () -> Unit = {}, onSearchConsumed: () -> Unit = {}) {
+@Composable
+internal fun LibrarySourceToggle(onOnline: () -> Unit) {
+    GlassControlSurface(Modifier.width(130.dp).height(38.dp), shape = RoundedCornerShape(50), tintAlpha = .28f, flexible = false) {
+        Row(Modifier.fillMaxSize().padding(3.dp)) {
+            Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(50)).background(MusicRed).semantics { selected = true }, contentAlignment = Alignment.Center) {
+                Text("Offline", style = MaterialTheme.typography.labelMedium, color = Color.White, maxLines = 1)
+            }
+            Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(50)).clickable(onClick = onOnline), contentAlignment = Alignment.Center) {
+                Text("Online", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+            }
+        }
+    }
+}
+
+@Composable
+private fun SearchSourceSwitch(youtubeSelected: Boolean, onSelectYouTube: () -> Unit, onSelectLibrary: () -> Unit) {
+    GlassControlSurface(Modifier.fillMaxWidth().height(46.dp), shape = RoundedCornerShape(50), tintAlpha = .34f, flexible = false) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(4.dp)) {
+            val segment = maxWidth / 2
+            val target = if (youtubeSelected) 0.dp else segment
+            val position by animateDpAsState(target, spring(dampingRatio = .82f, stiffness = 480f), label = "Search source pill")
+            Box(Modifier.offset(x = position).width(segment).fillMaxHeight().clip(RoundedCornerShape(50))
+                .background(Color.White.copy(alpha = .20f)).border(.5.dp, Color.White.copy(alpha = .10f), RoundedCornerShape(50)))
+            Row(Modifier.fillMaxSize()) {
+                listOf("YouTube" to onSelectYouTube, "Library" to onSelectLibrary).forEach { (label, action) ->
+                    val selected = (label == "YouTube") == youtubeSelected
+                    Box(Modifier.weight(1f).fillMaxHeight().clip(RoundedCornerShape(50)).glassTouch(action), contentAlignment = Alignment.Center) {
+                        Text(label, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurface.copy(alpha = if (selected) 1f else .78f), maxLines = 1)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable internal fun MusicLibraryScreen(onDetailChanged: (Boolean) -> Unit = {}, onPhoneImportChanged: (Boolean) -> Unit = {}, onPlayer: () -> Unit, onDownload: (String) -> Unit, rootRequested: Boolean = false, onRootConsumed: () -> Unit = {}, requestedPlaylist: String? = null, onPlaylistConsumed: () -> Unit = {}, requestedCategory: String? = null, onCategoryConsumed: () -> Unit = {}, searchRequested: Boolean = false, youtubeSearchRequested: Boolean = false, onSearchChanged: (Boolean) -> Unit = {}, onOnline: () -> Unit = {}, onSearchConsumed: () -> Unit = {}, onYoutubeSearchConsumed: () -> Unit = {}, phoneMusicRequested: Boolean = false, onPhoneMusicConsumed: () -> Unit = {}) {
     val libraryFlow = remember { MusicRepository.state.map { it.copy(queue = emptyList(), queueIndex = 0, position = 0, repeat = 0, shuffle = false) }.distinctUntilChanged() }
     val state by libraryFlow.collectAsStateWithLifecycle(initialValue = remember { MusicRepository.state.value })
     val scanning by MusicRepository.scanning.collectAsStateWithLifecycle()
@@ -90,6 +134,7 @@ private val MusicShape = MobileUi.card
     val context = LocalContext.current
     val listState = rememberLazyListState()
     val pageScroll = LocalPageScroll.current
+    LaunchedEffect(Unit) { MusicRepository.restoreMissingArtwork() }
     val dock=LocalDockGlass.current
     LaunchedEffect(listState,dock) {snapshotFlow {listState.isScrollInProgress}.collect {dock?.scrolling=it}}
     DisposableEffect(dock) {onDispose {dock?.scrolling=false}}
@@ -98,7 +143,9 @@ private val MusicShape = MobileUi.card
     val focusManager = LocalFocusManager.current
     var searching by rememberSaveable { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
-    var youtubeMode by rememberSaveable { mutableStateOf(false) }
+    val searchPrefs = remember(context) { context.getSharedPreferences("ythub-search-history", android.content.Context.MODE_PRIVATE) }
+    var recentSearches by remember { mutableStateOf(searchPrefs.getString("queries", "").orEmpty().split('\n').filter { it.isNotBlank() }) }
+    var youtubeMode by rememberSaveable { mutableStateOf(true) }
     var youtubeResults by remember { mutableStateOf<List<YouTubeResult>>(emptyList()) }
     var youtubeError by remember { mutableStateOf("") }
     var downloadingYouTube by remember { mutableStateOf<String?>(null) }
@@ -119,6 +166,9 @@ private val MusicShape = MobileUi.card
     var libraryMenu by remember { mutableStateOf(false) }
     var devicePicker by rememberSaveable { mutableStateOf(false) }
     var devicePlaylist by rememberSaveable { mutableStateOf<String?>(null) }
+    LaunchedEffect(phoneMusicRequested) {
+        if (phoneMusicRequested) { devicePlaylist = null; devicePicker = true; onPhoneMusicConsumed() }
+    }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
         val destination = devicePlaylist
         scope.launch { val ids = MusicRepository.importAudio(uris); if (destination != null) MusicRepository.addToPlaylist(destination, ids) }
@@ -134,7 +184,9 @@ private val MusicShape = MobileUi.card
         }
     }
     LaunchedEffect(requestedPlaylist) { if (requestedPlaylist != null) { playlistId = requestedPlaylist; category = "Playlists"; searching = false; onPlaylistConsumed() } }
-    LaunchedEffect(searchRequested) { if (searchRequested) { searching = true; category = "All Songs"; source = "All sources"; playlistId = null; group = null; onSearchConsumed() } }
+    LaunchedEffect(requestedCategory) { requestedCategory?.let { category = if (it == "Songs") "All Songs" else if (it == "Downloaded") "All Songs" else it; source = if (it == "Downloaded") "Downloaded" else "All sources"; playlistId = null; group = null; searching = false; onCategoryConsumed() } }
+    LaunchedEffect(searchRequested) { if (searchRequested) { searching = true; youtubeMode = true; category = "All Songs"; source = "All sources"; playlistId = null; group = null; onSearchConsumed() } }
+    LaunchedEffect(youtubeSearchRequested) { if (youtubeSearchRequested) { searching = true; youtubeMode = true; category = "All Songs"; source = "All sources"; playlistId = null; group = null; onYoutubeSearchConsumed() } }
     var previousSection by rememberSaveable { mutableStateOf("$category:$playlistId:$group") }
     LaunchedEffect(category, playlistId, group) { pageScroll?.reset(); val section = "$category:$playlistId:$group"; if (section != previousSection) { listState.scrollToItem(0); previousSection = section } }
     LaunchedEffect(searching) { onSearchChanged(searching); if (searching) { listState.scrollToItem(0); withFrameNanos { }; searchFocus.requestFocus() } }
@@ -142,11 +194,20 @@ private val MusicShape = MobileUi.card
         if (!youtubeMode || query.trim().length < 2) { youtubeResults = emptyList(); youtubeError = "" }
         else try { youtubeResults = searchYouTube(query.trim()); youtubeError = "" } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { youtubeError = e.message ?: "YouTube search failed" }
     }
+    LaunchedEffect(searching, query) {
+        val normalized = query.trim()
+        if (searching && normalized.length >= 2) {
+            delay(650)
+            recentSearches = (listOf(normalized) + recentSearches.filterNot { it.equals(normalized, true) }).take(8)
+            searchPrefs.edit().putString("queries", recentSearches.joinToString("\n")).apply()
+        }
+    }
     val sectionReveal = remember { Animatable(1f) }
-    LaunchedEffect(playlistId, group, category, searching) {
-        onDetailChanged(playlistId != null || group != null || category != "Overview" && !searching)
+    LaunchedEffect(playlistId, group, category, searching, devicePicker) {
+        onDetailChanged(devicePicker || playlistId != null || group != null || category != "Overview" && !searching)
         sectionReveal.snapTo(1f)
     }
+    LaunchedEffect(devicePicker) { onPhoneImportChanged(devicePicker) }
     fun libraryBack() {
         when { playlistId != null -> playlistId = null; group != null -> group = null; searching -> { searching = false; query = "" }; else -> category = "Overview" }
     }
@@ -182,7 +243,7 @@ private val MusicShape = MobileUi.card
         (category != "Favorites" || track.id in state.favorites) &&
         (category != "Recently Played" || track.id in state.history) &&
         (playlistIds == null || track.id in playlistIds) &&
-        (group == null || when (category) { "Albums" -> track.album == group; "Artists" -> track.artist == group; "Folders" -> track.folder == group; else -> true }) &&
+        (group == null || when (category) { "Albums" -> MusicRules.albumGroupKey(track) == group || (group?.contains("\u001f") != true && track.album == group); "Artists" -> track.artist == group; "Folders" -> track.folder == group; else -> true }) &&
         (normalizedQuery.isBlank() || searchIndex[track.id].orEmpty().contains(normalizedQuery))
     } } }
     val byId = remember(base) { base.associateBy { it.id } }
@@ -197,6 +258,9 @@ private val MusicShape = MobileUi.card
     val recentAdded = remember(state.tracks) { state.tracks.sortedByDescending { it.added }.take(12) }
     val trackKeys = remember(tracks) { motionTrackKeys(tracks.map { it.id }) }
     Box(Modifier.fillMaxSize()) {
+    if (devicePicker) {
+        DeviceMusicPicker(devicePlaylist, onDismiss = { devicePicker = false }, onChooseFiles = { devicePicker = false; picker.launch(arrayOf("audio/*")) })
+    } else {
     LazyColumn(Modifier.fillMaxSize().graphicsLayer {
         translationY = (1f - sectionReveal.value) * 250f
     }.testTag("music-library-list"), state = listState, contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = if (playlist != null || !searching && (category != "Overview" || group != null)) 60.dp else 0.dp, bottom = LocalMusicBottomPadding.current + 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -208,21 +272,31 @@ private val MusicShape = MobileUi.card
                 }
             }
             if(playlist==null && group!=null && category in listOf("Albums","Artists")) {
-                val members=state.tracks.filter {if(category=="Albums")it.album==group else it.artist==group}
+                val members=state.tracks.filter { if(category=="Albums") MusicRules.albumGroupKey(it)==group || (group?.contains("\u001f") != true && it.album==group) else it.artist==group }
                 Box(Modifier.fillMaxWidth().padding(top=8.dp,bottom=18.dp),contentAlignment=Alignment.Center) {
                     TrackArtwork(members.firstOrNull {it.artwork.isNotBlank()} ?: members.firstOrNull(),Modifier.size(196.dp),shape=if(category=="Artists") androidx.compose.foundation.shape.CircleShape else RoundedCornerShape(12.dp))
                 }
             }
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text(if (searching) "Search music" else playlist?.name ?: group?.let {if(it=="Unknown album") "Unsorted songs" else it} ?: when (category) { "Overview" -> "Offline library"; "All Songs" -> "Songs"; else -> category }, style = if (playlist != null || searching) MaterialTheme.typography.titleLarge else MaterialTheme.typography.headlineLarge, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            if (playlist != null || group != null || category != "Overview" && !searching) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(playlist?.name ?: group?.let { if(category=="Albums") MusicRules.albumGroupTitle(it).let { title -> if(title=="Unknown album") "Unsorted songs" else title } else if(it=="Unknown album") "Unsorted songs" else it } ?: if (category == "All Songs") "Songs" else category, style = MaterialTheme.typography.headlineSmall, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             }
-            Text(if (searching) "Find songs, artists, albums or files" else if (playlist == null) when {
+            if (!(playlist == null && !searching && category == "Overview")) Text(if (searching) "Find songs, artists, albums or files" else if (playlist == null) when {
                 category == "Playlists" -> "${state.playlists.size} playlists"
-                category == "Albums" && group == null -> "${base.map { it.album }.distinct().size} albums"
+                category == "Albums" && group == null -> "${base.map { MusicRules.albumGroupKey(it) }.distinct().size} albums"
                 category == "Artists" && group == null -> "${base.map { it.artist }.distinct().size} artists"
                 else -> "${tracks.size} songs · offline and yours"
             } else "${playlist.tracks.size} tracks · ${durationLabel(playlist.tracks.mapNotNull { id -> allById[id] }.sumOf { it.durationMs } / 1000)} · ${if (playlist.downloadId != null) "Downloaded" else "Local playlist"}", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = 4.dp).testTag("library-summary"))
-            if (playlist == null && !searching && category == "Overview") Row { TextButton(onClick = {}, enabled = false) { Text("Offline", maxLines = 1) }; TextButton(onClick = onOnline) { Text("Online", maxLines = 1) } }
+            if (playlist == null && !searching) Row(Modifier.fillMaxWidth().padding(top = 4.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                listOf("Playlists", "Artists", "Albums", "Songs", "Downloaded", "Favorites", "Recently Added", "Recently Played").forEach { tab ->
+                    val categoryForTab = if (tab == "Songs") "All Songs" else tab
+                    val selectedTab = category == categoryForTab && (tab != "Downloaded" || source == "Downloaded")
+                    FilterChip(selected = selectedTab, onClick = {
+                        category = if (tab == "Songs") "All Songs" else tab
+                        source = if (tab == "Downloaded") "Downloaded" else "All sources"
+                        group = null; playlistId = null
+                    }, label = { Text(tab, maxLines = 1) })
+                }
+            }
             if (playlist == null && !searching && category == "Overview") Row(Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilledTonalButton(onClick = { devicePlaylist = playlist?.id; devicePicker = true }) { Icon(Icons.Default.Add, null); Text("Phone music") }
                 IconButton(onClick = { scope.launch { MusicRepository.rescan(true) } }, enabled = !scanning) { Icon(Icons.Default.Refresh, "Rescan library") }
@@ -230,7 +304,7 @@ private val MusicShape = MobileUi.card
             }
             if (scanning) LinearProgressIndicator(Modifier.fillMaxWidth())
             if (searching) TextField(query, { query = it },
-                placeholder = { Text("Search music", maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                placeholder = { Text("Artists, songs, lyrics and more", maxLines = 1, overflow = TextOverflow.Ellipsis) },
                 modifier = Modifier.fillMaxWidth().padding(top = 12.dp).focusRequester(searchFocus).testTag("music-search-field")
                     .semantics { contentDescription = "Music search input" },
                 singleLine = true, textStyle = MaterialTheme.typography.bodyLarge,
@@ -243,10 +317,23 @@ private val MusicShape = MobileUi.card
                     IconButton(onClick = { query = ""; searching = false; selected = emptySet(); keyboard?.hide(); focusManager.clearFocus() }) { Icon(Icons.Rounded.Close, "Close music search", Modifier.size(20.dp)) }
                 } }, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                 keyboardActions = KeyboardActions(onSearch = { keyboard?.hide(); focusManager.clearFocus() }))
-            if (searching) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf("Offline", "YouTube").forEach { mode -> FilterChip(selected = youtubeMode == (mode == "YouTube"), onClick = { youtubeMode = mode == "YouTube" }, label = { Text(mode) }) }
-            }
+            if (searching) SearchSourceSwitch(youtubeSelected = youtubeMode, onSelectYouTube = { youtubeMode = true }, onSelectLibrary = { youtubeMode = false })
 
+            }
+        }
+        if (searching && searchQuery.isBlank() && recentSearches.isNotEmpty()) item {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text("Recent searches", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium)
+                    TextButton(onClick = { recentSearches = emptyList(); searchPrefs.edit().remove("queries").apply() }) { Text("Clear") }
+                }
+                recentSearches.forEach { recent ->
+                    Row(Modifier.fillMaxWidth().heightIn(min = 54.dp).clip(RoundedCornerShape(14.dp)).glassTouch({ query = recent }).padding(horizontal = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Icon(Icons.Rounded.History, null, Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text(recent, Modifier.weight(1f).padding(horizontal = 12.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        IconButton(onClick = { recentSearches = recentSearches - recent; searchPrefs.edit().putString("queries", recentSearches.joinToString("\n")).apply() }) { Icon(Icons.Rounded.Close, "Remove $recent from recent searches", Modifier.size(18.dp)) }
+                    }
+                }
             }
         }
         if (searching && searchQuery.isNotBlank()) {
@@ -317,15 +404,16 @@ private val MusicShape = MobileUi.card
                 PlaylistArtworkRow(p, state.tracks) { playlistId = p.id; searching = false; query = "" }
             }
         } else if (category in listOf("Albums", "Artists", "Folders") && group == null) {
-            val groups = base.groupBy { when (category) { "Albums" -> it.album; "Artists" -> it.artist; else -> it.folder } }
+            val groups = base.groupBy { when (category) { "Albums" -> MusicRules.albumGroupKey(it); "Artists" -> it.artist; else -> it.folder } }
             if(category=="Albums") {
                 itemsIndexed(groups.keys.sorted().chunked(2),key={index,_->"album-pair-$index"}) {_, names ->
                     Row(Modifier.fillMaxWidth().padding(vertical=4.dp),horizontalArrangement=Arrangement.spacedBy(16.dp)) {
                         names.forEach { name ->
                             val members=groups[name].orEmpty()
                             val cover=members.firstOrNull {it.artwork.isNotBlank()} ?: members.first()
-                            val artist=members.map {it.artist}.distinct().singleOrNull()?.takeUnless {it=="Unknown artist"} ?: "Various artists"
-                            MusicArtworkCard(cover.copy(title=if(name=="Unknown album") "Unsorted songs" else name,available=true),subtitle="$artist · ${members.size} ${if(members.size==1) "song" else "songs"}",modifier=Modifier.weight(1f)) {group=name}
+                            val albumTitle=MusicRules.albumGroupTitle(name)
+                            val artist=MusicRules.albumGroupArtist(name).takeUnless {it.isBlank() || it=="Unknown artist"} ?: "Unknown artist"
+                            MusicArtworkCard(cover.copy(title=if(albumTitle=="Unknown album") "Unsorted songs" else albumTitle,available=true),subtitle="$artist · ${members.size} ${if(members.size==1) "song" else "songs"}",modifier=Modifier.weight(1f)) {group=name}
                         }
                         if(names.size==1)Spacer(Modifier.weight(1f))
                     }
@@ -391,27 +479,30 @@ private val MusicShape = MobileUi.card
                 onAdd = { devicePlaylist = playlist?.id; devicePicker = true },
                 onMore = { if (playlist != null) playlistMenu = true else libraryMenu = true },
                 addLabel = if (playlist != null) "Add phone music to playlist" else "Phone music")
+            if (libraryMenu) GlassActionPopover("Library options", { libraryMenu = false }) {
+                GlassMenuItem(text = { Text("Import music from phone") }, onClick = { devicePlaylist = null; devicePicker = true; libraryMenu = false })
+                GlassMenuItem(text = { Text("Create playlist") }, onClick = { create = true; name = ""; libraryMenu = false })
+                listOf("Title", "Artist", "Recently added", "Recently played", "Duration", "File size").forEach { choice ->
+                    GlassMenuItem(text = { Text("Sort: $choice") }, onClick = { sort = choice; libraryMenu = false })
+                }
+                listOf("All sources", "Downloaded", "Imported").forEach { choice ->
+                    GlassMenuItem(text = { Text(choice) }, onClick = { source = choice; libraryMenu = false })
+                }
+                GlassMenuItem(text = { Text(if (effectiveLayout == "Grid") "Use compact list" else "Use artwork grid") }, onClick = {
+                    val next = if (effectiveLayout == "Grid") "Compact" else "Grid"
+                    MusicRepository.settings(if (category == "All Songs") state.settings.copy(songsLayout = next) else state.settings.copy(libraryLayout = next)); libraryMenu = false
+                })
+            }
+            if (playlistMenu && playlist != null) GlassActionPopover(playlist.name, { playlistMenu = false }) {
+                GlassMenuItem(text = { Text("Add phone music") }, onClick = { devicePlaylist = playlist.id; devicePicker = true; playlistMenu = false })
+                GlassMenuItem(text = { Text("Add playlist to queue") }, onClick = { MusicPlayback.enqueue(playlist.tracks); playlistMenu = false })
+                GlassMenuItem(text = { Text("Rename") }, onClick = { rename = true; name = playlist.name; playlistMenu = false })
+                GlassMenuItem(text = { Text("Delete playlist") }, onClick = { confirmDelete = true; playlistMenu = false })
+            }
         }
     }
     }
-    if (libraryMenu) GlassActionPopover("Library options", { libraryMenu = false }) {
-        listOf("Title", "Artist", "Recently added", "Recently played", "Duration", "File size").forEach { choice ->
-            GlassMenuItem(text = { Text("Sort: $choice") }, onClick = { sort = choice; libraryMenu = false })
-        }
-        listOf("All sources", "Downloaded", "Imported").forEach { choice ->
-            GlassMenuItem(text = { Text(choice) }, onClick = { source = choice; libraryMenu = false })
-        }
-        GlassMenuItem(text = { Text(if (effectiveLayout == "Grid") "Use compact list" else "Use artwork grid") }, onClick = {
-            val next = if (effectiveLayout == "Grid") "Compact" else "Grid"
-            MusicRepository.settings(if (category == "All Songs") state.settings.copy(songsLayout = next) else state.settings.copy(libraryLayout = next)); libraryMenu = false
-        })
     }
-    if (playlistMenu && playlist != null) GlassActionPopover(playlist.name, { playlistMenu = false }) {
-        GlassMenuItem(text = { Text("Add playlist to queue") }, onClick = { MusicPlayback.enqueue(playlist.tracks); playlistMenu = false })
-        GlassMenuItem(text = { Text("Rename") }, onClick = { rename = true; name = playlist.name; playlistMenu = false })
-        GlassMenuItem(text = { Text("Delete playlist") }, onClick = { confirmDelete = true; playlistMenu = false })
-    }
-    if (devicePicker) DeviceMusicPicker(devicePlaylist, onDismiss = { devicePicker = false }, onChooseFiles = { devicePicker = false; picker.launch(arrayOf("audio/*")) })
     if (create || rename) GlassConfirmDialog(onDismissRequest = { create = false; rename = false }, title = { Text(if (rename) "Rename playlist" else "Create playlist") },
         text = { OutlinedTextField(name, { name = it }, label = { Text("Playlist name") }) }, confirmButton = { TextButton(enabled = name.isNotBlank(), onClick = {
             MusicRepository.playlist(name, if (rename) playlist?.tracks.orEmpty() else selected.toList(), if (rename) playlist?.id else null); create = false; rename = false

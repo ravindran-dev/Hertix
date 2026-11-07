@@ -28,6 +28,11 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
@@ -37,9 +42,12 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -56,6 +64,75 @@ import kotlin.math.roundToInt
     IconButton(onClick = onClick, enabled = enabled, interactionSource = interaction, modifier = modifier.size(size)) {
         Crossfade(icon, animationSpec = tween(140), label = "Player glyph") { vector ->
             Icon(vector, description, Modifier.size(glyph).graphicsLayer { scaleX = scale; scaleY = scale }, tint = color)
+        }
+    }
+}
+
+internal enum class CurvedPlaybackGlyph { Shuffle, Loop, LoopOne }
+
+/** Lightweight, round-stroked transport glyphs sized and animated like the player controls. */
+@Composable internal fun CurvedPlaybackControl(
+    description: String,
+    onClick: () -> Unit,
+    active: Boolean,
+    size: Dp,
+    glyph: Dp,
+    style: CurvedPlaybackGlyph,
+) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(if (pressed) .94f else 1f, spring(dampingRatio = 1f, stiffness = 520f), label = "Curved transport press")
+    val tint by animateColorAsState(if (active) MobileUi.accent else MaterialTheme.colorScheme.onSurface, tween(130), label = "Curved transport tint")
+    IconButton(onClick = onClick, interactionSource = interaction, modifier = Modifier.size(size).semantics { contentDescription = description }) {
+        Box(Modifier.size(glyph).graphicsLayer { scaleX = pressScale; scaleY = pressScale }) {
+            Canvas(Modifier.fillMaxSize()) {
+                val unit = this.size.minDimension / 24f
+                val line = 2f
+                val stroke = Stroke(line, cap = StrokeCap.Round, join = StrokeJoin.Round)
+                scale(unit, unit, Offset.Zero) {
+                    when (style) {
+                        CurvedPlaybackGlyph.Shuffle -> {
+                            val first = Path().apply {
+                                moveTo(3f, 6f); cubicTo(8f, 6f, 11f, 18f, 17f, 18f); lineTo(20f, 18f)
+                                moveTo(16.5f, 15f); lineTo(20f, 18f); lineTo(16.5f, 21f)
+                            }
+                            val second = Path().apply {
+                                moveTo(3f, 18f); cubicTo(8f, 18f, 11f, 6f, 17f, 6f); lineTo(20f, 6f)
+                                moveTo(16.5f, 3f); lineTo(20f, 6f); lineTo(16.5f, 9f)
+                            }
+                            drawPath(first, tint, style = stroke)
+                            drawPath(second, tint, style = stroke)
+                        }
+                        CurvedPlaybackGlyph.Loop, CurvedPlaybackGlyph.LoopOne -> {
+                            val upper = Path().apply {
+                                moveTo(5f, 11f); cubicTo(5f, 7.5f, 8f, 5f, 12f, 5f); cubicTo(16f, 5f, 19f, 7.5f, 19f, 11f)
+                                moveTo(16.5f, 9f); lineTo(20f, 12f); lineTo(16.5f, 15f)
+                            }
+                            val lower = Path().apply {
+                                moveTo(19f, 13f); cubicTo(19f, 16.5f, 16f, 19f, 12f, 19f); cubicTo(8f, 19f, 5f, 16.5f, 5f, 13f)
+                                moveTo(7.5f, 9f); lineTo(4f, 12f); lineTo(7.5f, 15f)
+                            }
+                            drawPath(upper, tint, style = stroke)
+                            drawPath(lower, tint, style = stroke)
+                        }
+                    }
+                }
+            }
+            if (style == CurvedPlaybackGlyph.LoopOne) Text("1", Modifier.align(Alignment.Center), color = tint, fontSize = 8.sp, lineHeight = 9.sp, fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+/** Circular repeat mark from the app icon set, with the one-track state set into its open centre. */
+@Composable internal fun LoopModeControl(description: String, onClick: () -> Unit, active: Boolean, repeatOne: Boolean, size: Dp, glyph: Dp) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val pressScale by animateFloatAsState(if (pressed) .94f else 1f, spring(dampingRatio = 1f, stiffness = 520f), label = "Loop control press")
+    val tint by animateColorAsState(if (active) MobileUi.accent else MaterialTheme.colorScheme.onSurface, tween(130), label = "Loop control tint")
+    IconButton(onClick = onClick, interactionSource = interaction, modifier = Modifier.size(size).semantics { contentDescription = description }) {
+        Box(Modifier.size(glyph).graphicsLayer { scaleX = pressScale; scaleY = pressScale }) {
+            Icon(Icons.Rounded.Cached, null, Modifier.fillMaxSize(), tint = tint)
+            if (repeatOne) Text("1", Modifier.align(Alignment.Center), color = tint, fontSize = 8.sp, lineHeight = 9.sp, fontWeight = FontWeight.Bold)
         }
     }
 }

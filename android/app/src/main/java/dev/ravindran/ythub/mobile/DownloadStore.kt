@@ -294,7 +294,8 @@ object DownloadStore {
                     .addOption("--concurrent-fragments", 2).addOption("-o", File(directory, "$prefix%(title).120B [%(id)s].%(ext)s").absolutePath)
                 if (item.audio) {
                     request.addOption("-f", "bestaudio/best").addOption("--extract-audio").addOption("--audio-format", "mp3")
-                        .addOption("--audio-quality", if (item.quality == "best") "0" else "${item.quality}K").addOption("--embed-metadata")
+                        .addOption("--audio-quality", if (item.quality == "best") "0" else "${item.quality}K")
+                        .addOption("--embed-metadata").addOption("--embed-thumbnail").addOption("--convert-thumbnails", "jpg")
                 } else {
                     val limit = if (item.quality == "best") "" else "[height<=${item.quality.toInt()}]"
                     request.addOption("-f", "bestvideo$limit[ext=mp4]+bestaudio[ext=m4a]/best$limit[ext=mp4]/best$limit")

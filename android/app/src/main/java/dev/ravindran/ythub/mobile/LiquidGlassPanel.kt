@@ -26,7 +26,8 @@ import androidx.compose.ui.unit.dp
 /** Shared liquid material. The gesture observer never consumes taps, drags or scroll events. */
 @Composable
 internal fun LiquidGlassPanel(modifier: Modifier = Modifier, backdrop: GraphicsLayer? = null,
-    contentOrigin: Offset = Offset.Zero, radius: Dp = 28.dp, animateOnTouch: Boolean = true, content: @Composable BoxScope.() -> Unit) {
+    contentOrigin: Offset = Offset.Zero, radius: Dp = 28.dp, animateOnTouch: Boolean = true, tintAlpha: Float = .4f,
+    content: @Composable BoxScope.() -> Unit) {
     val scene = LocalGlassScene.current
     val dark = MaterialTheme.colorScheme.background.luminance() < .5f
     var pressed by remember { mutableStateOf(false) }
@@ -57,7 +58,7 @@ internal fun LiquidGlassPanel(modifier: Modifier = Modifier, backdrop: GraphicsL
     }, backdrop = backdrop ?: scene?.layer,
         contentOrigin = if (backdrop == null) scene?.origin ?: contentOrigin else contentOrigin,
         shape = RoundedCornerShape(radius), screenPosition = true, flexible = false,
-        tintAlpha = .4f, magnification = 1.065f) {
+        tintAlpha = tintAlpha, magnification = 1.065f) {
         content()
     }
 }

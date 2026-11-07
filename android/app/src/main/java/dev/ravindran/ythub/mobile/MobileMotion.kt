@@ -9,20 +9,27 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 
 /** Finite UI transitions use Compose's system duration scale, including disabled animations. */
 internal object MobileMotion {
     const val quick = 140
     const val standard = 220
-    const val navigation = 220
+    const val navigation = 200
     fun navigation(from: String, to: String, back: Boolean = false): ContentTransform {
-        val tabs = listOf("Home", "Downloads", "Library", "Settings")
+        val tabs = listOf("Home", "Explore", "Downloads", "Library", "Search", "Settings", "Account")
+        val horizontalMotion = spring<IntOffset>(dampingRatio = .94f, stiffness = 620f, visibilityThreshold = IntOffset(1, 1))
         return when {
-            from in tabs && to in tabs -> EnterTransition.None togetherWith ExitTransition.None
-            to=="Player" -> (fadeIn(tween(140))+slideInVertically(tween(160)) {it/12}) togetherWith fadeOut(tween(90))
-            from=="Player" -> fadeIn(tween(110)) togetherWith (fadeOut(tween(110))+slideOutVertically(tween(150)){it/12})
-            else -> fadeIn(tween(100)) togetherWith fadeOut(tween(90))
+            to == "Player" -> EnterTransition.None togetherWith fadeOut(tween(110))
+            from == "Player" -> fadeIn(tween(150)) togetherWith ExitTransition.None
+            from in tabs && to in tabs -> {
+                val forward = !back
+                (fadeIn(tween(100)) + slideInHorizontally(horizontalMotion) { width -> if (forward) width / 10 else -width / 10 }) togetherWith
+                    (fadeOut(tween(90)) + slideOutHorizontally(horizontalMotion) { width -> if (forward) -width / 14 else width / 14 })
+            }
+            else -> (fadeIn(tween(110)) + slideInVertically(spring(dampingRatio = .94f, stiffness = 640f)) { if (back) -it / 16 else it / 16 }) togetherWith
+                (fadeOut(tween(90)) + slideOutVertically(spring(dampingRatio = .94f, stiffness = 640f)) { if (back) it / 20 else -it / 20 })
         }
     }
 }

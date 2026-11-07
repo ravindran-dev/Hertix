@@ -18,6 +18,12 @@ import androidx.activity.SystemBarStyle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.EnterExitState
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -125,9 +131,23 @@ class MainActivity : ComponentActivity() {
     }
     val dockBackdrop = rememberDockGlassState()
     val popoverHost = rememberGlassPopoverHost()
+    val popoverBackdrop = rememberGraphicsLayer()
+    val popoverOpen = popoverHost.entry != null
     val playerPullOffset = remember { mutableFloatStateOf(0f) }
     val contentOrigin = Offset.Zero
     var page by rememberSaveable { mutableStateOf("Home") }
+    var updatePrompt by remember { mutableStateOf<YTHubRelease?>(null) }
+    LaunchedEffect(Unit) {
+        val updates = context.getSharedPreferences("app_updates", android.content.Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        if (now - updates.getLong("last_check", 0L) >= 24L * 60L * 60L * 1000L) {
+            runCatching { AppUpdater.checkForUpdate() }.onSuccess { status ->
+                updates.edit().putLong("last_check", now).apply()
+                val available = (status as? AppUpdateStatus.Available)?.release
+                if (available != null && now >= updates.getLong("snoozed_until", 0L)) updatePrompt = available
+            }
+        }
+    }
     val openBackup by CloudBackupPolicy.openAccount.collectAsStateWithLifecycle()
     LaunchedEffect(openBackup) {if(openBackup){page="Account";CloudBackupPolicy.openAccount.value=false}}
     val dark = preferences.theme == "Dark" || (preferences.theme == "System" && isSystemInDarkTheme())
@@ -143,21 +163,26 @@ class MainActivity : ComponentActivity() {
     val pageState = rememberSaveableStateHolder()
     val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     var librarySearch by remember { mutableStateOf(false) }
+    var youtubeSearchRequested by remember { mutableStateOf(false) }
+    var requestedLibraryCategory by remember { mutableStateOf<String?>(null) }
     var librarySearchActive by rememberSaveable { mutableStateOf(false) }
     var libraryRootRequested by remember { mutableStateOf(false) }
     var libraryDetailActive by remember { mutableStateOf(false) }
+    var phoneImportActive by remember { mutableStateOf(false) }
     var requestedPlaylist by remember { mutableStateOf<String?>(null) }
     var navigatingBack by remember { mutableStateOf(false) }
     var playerOrigin by rememberSaveable { mutableStateOf("Library") }
     var settingsOrigin by rememberSaveable { mutableStateOf("Settings") }
     var secondaryOrigin by rememberSaveable { mutableStateOf("Settings") }
-    fun openPlayer() { navigatingBack = false; if (page != "Player") playerOrigin = page; page = "Player" }
+    fun openPlayer() { navigatingBack = false; if (page != "Player") playerOrigin = if (page == "Library" && librarySearchActive) "Search" else page; page = "Player" }
+    fun closePlayer() { navigatingBack = true; page = if (playerOrigin == "Search") "Library" else playerOrigin }
     fun openSecondary(destination: String) { navigatingBack = false; secondaryOrigin = page; page = destination }
     fun openPlayerSettings() { navigatingBack = false; settingsOrigin = page; page = "Player Settings" }
     var detail by rememberSaveable { mutableStateOf<String?>(null) }
     var media by remember { mutableStateOf<MediaInfo?>(null) }
     var saveDownloadedPlaylist by rememberSaveable { mutableStateOf(true) }
     var downloadedPlaylistName by rememberSaveable { mutableStateOf("") }
+    var phoneMusicRequested by remember { mutableStateOf(false) }
     LaunchedEffect(media?.url) {
         saveDownloadedPlaylist = MusicRepository.state.value.settings.downloadPlaylists
         downloadedPlaylistName = media?.title.orEmpty()
@@ -166,6 +191,11 @@ class MainActivity : ComponentActivity() {
         navigatingBack = false
         detail = null; media = null; librarySearch = false; librarySearchActive = false; requestedPlaylist = null
         libraryRootRequested = true; page = "Library"
+    }
+    fun openPhoneMusic() {
+        navigatingBack = false
+        detail = null; media = null; librarySearch = false; librarySearchActive = false; requestedPlaylist = null
+        libraryRootRequested = false; phoneMusicRequested = true; page = "Library"
     }
     var url by rememberSaveable { mutableStateOf("") }
     var audio by rememberSaveable { mutableStateOf(true) }
@@ -177,7 +207,6 @@ class MainActivity : ComponentActivity() {
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(notice) { notice?.let { snackbar.showSnackbar(it); notice = null } }
     var qualitySheet by remember { mutableStateOf(false) }
-    var phoneMusicRequested by remember { mutableStateOf(false) }
     var confirmCancel by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val phoneFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { uris ->
@@ -223,36 +252,43 @@ class MainActivity : ComponentActivity() {
     val pageScroll = remember(page, detail, media?.url) { PageScrollState() }
     BackHandler(enabled = detail != null || media != null || page != "Home") {
         navigatingBack = true
-        if (detail != null) detail = null else if (media != null) media = null else page = when (page) { "Player Settings" -> settingsOrigin; "Player" -> playerOrigin; "Storage", "History", "Logs", "Account" -> secondaryOrigin; "Cloud Library" -> secondaryOrigin; "Downloads", "Library", "Settings" -> "Home"; else -> "Settings" }
+        if (detail != null) detail = null else if (media != null) media = null else page = when (page) { "Player Settings" -> settingsOrigin; "Player" -> if (playerOrigin == "Search") "Library" else playerOrigin; "Storage", "History", "Logs", "Account", "About", "App Updates" -> secondaryOrigin; "Cloud Library" -> secondaryOrigin; "Downloads", "Library", "Explore", "Settings" -> "Home"; else -> "Settings" }
     }
     MaterialTheme(colorScheme = scheme, typography = musicTypography()) {
-        CompositionLocalProvider(LocalPageScroll provides pageScroll, LocalDockGlass provides dockBackdrop, LocalAccountAction provides {if(page!="Account")openSecondary("Account")}, LocalAtmosphereLayer provides atmosphereLayer, LocalPlayerPullOffset provides playerPullOffset, LocalGlassScene provides GlassScene(screenBackdrop, contentOrigin), LocalGlassPopoverHost provides popoverHost) {
+        CompositionLocalProvider(LocalPageScroll provides pageScroll, LocalDockGlass provides dockBackdrop, LocalAccountAction provides {if(page!="Account")openSecondary("Account")}, LocalAtmosphereLayer provides atmosphereLayer, LocalPlayerPullOffset provides playerPullOffset, LocalGlassScene provides GlassScene(screenBackdrop, contentOrigin), LocalPopoverGlassBackdrop provides if(popoverOpen) popoverBackdrop else null, LocalGlassPopoverHost provides popoverHost) {
         Surface(Modifier.fillMaxSize(), color = scheme.background) {
             Box(Modifier.fillMaxSize()) {
             ScreenAtmosphere(if (preferences.onboardingDone) page else "", atmosphereLayer, screenBackdrop)
             if (!preferences.onboardingDone) {
                 Onboarding(engine) { DownloadStore.savePrefs(preferences.copy(onboardingDone = true)) }
             } else {
-                Scaffold(modifier = Modifier.semantics { if (popoverHost.entry != null) hideFromAccessibility() }, containerColor = Color.Transparent, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = {
-                    if (!keyboardOpen && page != "Player") FloatingPlaybackDock(
+                Scaffold(modifier = Modifier.semantics { if (popoverHost.entry != null) hideFromAccessibility() }.capturePopoverGlass(atmosphereLayer, popoverBackdrop, popoverOpen), containerColor = Color.Transparent, snackbarHost = { SnackbarHost(snackbar) }, bottomBar = {
+                    androidx.compose.animation.AnimatedVisibility(
+                        visible = !keyboardOpen && page != "Player" && !phoneImportActive,
+                        enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(140)) + androidx.compose.animation.slideInVertically(androidx.compose.animation.core.tween(180)) { it / 5 },
+                        exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(100)) + androidx.compose.animation.slideOutVertically(androidx.compose.animation.core.tween(150)) { it / 5 }
+                    ) {
+                    FloatingPlaybackDock(
                         destination = if (page == "Library" && (librarySearchActive || librarySearch)) "Search" else page,
-                        onDownloads = { navigatingBack = false; page = "Downloads"; detail = null; media = null },
+                        onExplore = { navigatingBack = false; page = "Explore"; detail = null; media = null },
                         onHome = { navigatingBack = page != "Home"; page = "Home"; detail = null; media = null }, onPlayer = { openPlayer() },
                         onLibrary = ::openLibrary,
                         onSearch = { navigatingBack = false; libraryRootRequested = false; page = "Library"; detail = null; media = null; librarySearch = true },
                         dark = dark, dockBackdrop = dockBackdrop)
+                    }
                 }, topBar = {
                     if ((page == "Player" || page == "Library" && libraryDetailActive) && detail == null && media == null) Spacer(Modifier.statusBarsPadding()) else Row(Modifier.fillMaxWidth().statusBarsPadding().windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal)).padding(horizontal = PagePadding, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
-                        if (media != null || detail != null || page !in listOf("Home", "Downloads", "Player", "Library", "Settings")) {
+                        if (media != null || detail != null || page !in listOf("Home", "Downloads", "Player", "Library", "Explore", "Account", "Settings")) {
                             GlassControlSurface(Modifier.size(48.dp), dark) { GlassIconButton(Icons.AutoMirrored.Filled.ArrowBack, "Go back", { navigatingBack = true; if (detail != null) detail = null else if (media != null) media = null else page = if (page == "Player Settings") settingsOrigin else secondaryOrigin }) }
                             Spacer(Modifier.width(12.dp))
-                            ScrollingHeaderTitle(if (detail != null) "Download details" else if (media != null) if (media!!.playlist) "Playlist details" else "Media details" else if(page=="Cloud Library") "Online" else page, Modifier.weight(1f))
+                            ScrollingHeaderTitle(if (detail != null) "Download details" else if (media != null) if (media!!.playlist) "Playlist details" else "Media details" else if(page=="Cloud Library") "Online library" else page, Modifier.weight(1f))
                             if (media != null || detail != null) {
                                 var contextMenu by remember { mutableStateOf(false) }
                                 val item = jobs.find { it.id == detail }
                                 Box {
-                                    PairedGlassActions(onAdd = { phoneMusicRequested = true }, onMore = { contextMenu = true }, addLabel = "Phone music", moreLabel = "Contextual options")
-                                    if (contextMenu) GlassActionPopover("Actions", { contextMenu = false }, screenBackdrop, contentOrigin) {
+                                    PairedGlassActions(onAdd = ::openPhoneMusic, onMore = { contextMenu = true }, addLabel = "Phone music", moreLabel = "Contextual options")
+                                    if (contextMenu) GlassActionPopover("Actions", { contextMenu = false }) {
+                                        GlassMenuItem(text = { Text("Import music from phone") }, onClick = { contextMenu = false; openPhoneMusic() })
                                         if (media != null) {
                                             GlassMenuItem(text = { Text("Download") }, onClick = { contextMenu = false; startDownload() })
                                             GlassMenuItem(text = { Text("Copy source URL") }, onClick = { copyText(context, media!!.url); contextMenu = false })
@@ -268,16 +304,40 @@ class MainActivity : ComponentActivity() {
                             }
                         } else {
                             ScrollingHeaderTitle(if (page == "Home") "YTHub" else if (page == "Library" && librarySearchActive) "Search" else page, Modifier.weight(1f), brand = page == "Home")
+                            if (page == "Library" && !libraryDetailActive && !librarySearchActive && !librarySearch) {
+                                LibrarySourceToggle {
+                                    navigatingBack = false
+                                    secondaryOrigin = "Library"
+                                    page = if (CloudAccount.state.value.userId == null) "Account" else "Cloud Library"
+                                }
+                                Spacer(Modifier.width(8.dp))
+                            }
                             var appMenu by remember { mutableStateOf(false) }
                             Box {
-                            PairedGlassActions(onAdd = { phoneMusicRequested = true }, onMore = { appMenu = true },
-                                addLabel = "Phone music", moreLabel = "App menu", backdrop = screenBackdrop, contentOrigin = contentOrigin)
+                            PairedGlassActions(onAdd = ::openPhoneMusic, onMore = { appMenu = true },
+                                addLabel = "Phone music", moreLabel = "More")
                             if (appMenu) GlassPopover({ appMenu = false }) {
-                                listOf(listOf("Settings" to Icons.Default.Settings, "History" to Icons.Default.History)).forEach { group ->
-                                    GlassMenuBlock(screenBackdrop, contentOrigin) {
-                                        group.forEach { (destination, icon) ->
-                                            MusicActionRow(destination, icon, { appMenu = false; if (destination == "Library") openLibrary() else openSecondary(destination) })
-                                        }
+                                GlassMenuBlock(backdrop = LocalPopoverGlassBackdrop.current ?: screenBackdrop, contentOrigin = contentOrigin) {
+                                    listOf(
+                                        "Import music from phone" to Icons.Default.AddToPhotos,
+                                        "Downloads" to Icons.Default.Download,
+                                        "Cloud Sync" to Icons.Default.CloudSync,
+                                        "Settings" to Icons.Default.Settings,
+                                        "History" to Icons.Default.History,
+                                        "App updates" to Icons.Default.SystemUpdate,
+                                        "About YTHub" to Icons.Default.Info
+                                    ).forEach { (destination, icon) ->
+                                        MusicActionRow(destination, icon, {
+                                            appMenu = false
+                                            when(destination) {
+                                                "Import music from phone" -> openPhoneMusic()
+                                                "Downloads" -> page = "Downloads"
+                                                "Cloud Sync" -> openSecondary(if(CloudAccount.state.value.userId == null) "Account" else "Cloud Library")
+                                                "About YTHub" -> openSecondary("About")
+                                                "App updates" -> openSecondary("App Updates")
+                                                else -> openSecondary(destination)
+                                            }
+                                        })
                                     }
                                 }
                             }
@@ -293,22 +353,38 @@ class MainActivity : ComponentActivity() {
                         .fillMaxSize().nestedScroll(pageScroll).captureDockGlass(dockBackdrop, atmosphereLayer, enabled = !keyboardOpen && page != "Player")) { destination ->
                         pageState.SaveableStateProvider(destination) {
                         when (destination) {
-                            "Home" -> HomeScreen(url, { url = it }, audio, { audio = it; quality = if (it) preferences.audioQuality else preferences.videoQuality }, quality,
-                                { qualitySheet = true }, playlist, { playlist = it }, preferences, engine, analyzing,
+                            "Home" -> HomeScreen(onDownloads = { navigatingBack = false; page = "Downloads" }, onLibrary = ::openLibrary, onPlayer = { openPlayer() }, onOpenPlaylist = { navigatingBack = false; requestedPlaylist = it; page = "Library" })
+                            "Explore" -> ExploreScreen(
+                                url = url, onUrl = { url = it }, audio = audio,
+                                onAudio = { audio = it; quality = if (it) preferences.audioQuality else preferences.videoQuality },
+                                quality = quality, onQuality = { qualitySheet = true }, playlistDownload = playlist, onPlaylistDownload = { playlist = it },
+                                preferences = preferences, engineReady = engine.contains("ready"), busy = analyzing,
                                 onAnalyze = { scope.launch {
                                     analyzing = true
                                     runCatching { DownloadStore.analyze(url, playlist) }.onSuccess { media = it }.onFailure { error = it.message ?: "Unable to analyze this URL" }
                                     analyzing = false
-                                } }, onStorage = { openSecondary("Storage") }, activeCount = jobs.count { !it.terminal }, onDownloads = { navigatingBack = false; page = "Downloads" }, onLibrary = ::openLibrary, onPlayer = { openPlayer() }, onOpenPlaylist = { navigatingBack = false; requestedPlaylist = it; page = "Library" })
+                                } }, activeDownloads = jobs.count { !it.terminal },
+                                onStorage = { openSecondary("Storage") },
+                                onYouTubeSearch = { navigatingBack = false; page = "Library"; librarySearch = false; youtubeSearchRequested = true },
+                                onLibraryCategory = { category -> navigatingBack = false; requestedLibraryCategory = category; page = "Library" },
+                                onPlaylist = { id -> navigatingBack = false; requestedPlaylist = id; page = "Library" },
+                                onDownloads = { navigatingBack = false; page = "Downloads" }
+                            )
                             "media" -> media?.let { MediaScreen(it, audio, { audio = it; quality = if (it) preferences.audioQuality else preferences.videoQuality }, quality, { qualitySheet = true }, preferences, ::startDownload, saveDownloadedPlaylist, { saveDownloadedPlaylist = it }, downloadedPlaylistName, { downloadedPlaylistName = it }) }
                             "Downloads" -> DownloadsScreen(jobs, { detail = it }, { id -> act { DownloadStore.pause(id) } }, { id -> act { DownloadStore.resume(id) } }, { confirmCancel = it }, { page = "Home" },
                                 onPlay = { MusicPlayback.downloadToPlay.value = it }, onAdd = { id -> scope.launch {
                                     runCatching { MusicRepository.downloadedTracks(id) }.onSuccess { notice = if (it.isEmpty()) "No accessible audio files found" else "Added to your music library" }.onFailure { error = it.message }
                                 } })
-                            "Library" -> MusicLibraryScreen(onDetailChanged = { libraryDetailActive = it }, onPlayer = { openPlayer() }, onDownload = { navigatingBack = false; detail = it }, rootRequested = libraryRootRequested, onRootConsumed = { libraryRootRequested = false }, requestedPlaylist = requestedPlaylist, onPlaylistConsumed = { requestedPlaylist = null }, onOnline = { secondaryOrigin = "Library"; page = if(CloudAccount.state.value.userId==null) "Account" else "Cloud Library" }, onSearchChanged = { librarySearchActive = it }, searchRequested = librarySearch, onSearchConsumed = { librarySearch = false })
-                            "Player" -> NowPlayingScreen(onLibrary = ::openLibrary, onSettings = { openPlayerSettings() }, onDownload = { navigatingBack = false; detail = it }, onMinimize = { navigatingBack = true; page = playerOrigin }, onPhoneMusic = { phoneMusicRequested = true })
+                            "Library" -> MusicLibraryScreen(onDetailChanged = { libraryDetailActive = it }, onPhoneImportChanged = { phoneImportActive = it }, onPlayer = { openPlayer() }, onDownload = { navigatingBack = false; detail = it }, rootRequested = libraryRootRequested, onRootConsumed = { libraryRootRequested = false }, requestedPlaylist = requestedPlaylist, onPlaylistConsumed = { requestedPlaylist = null }, requestedCategory = requestedLibraryCategory, onCategoryConsumed = { requestedLibraryCategory = null }, onOnline = { secondaryOrigin = "Library"; page = if(CloudAccount.state.value.userId==null) "Account" else "Cloud Library" }, onSearchChanged = { librarySearchActive = it }, searchRequested = librarySearch, youtubeSearchRequested = youtubeSearchRequested, onSearchConsumed = { librarySearch = false }, onYoutubeSearchConsumed = { youtubeSearchRequested = false }, phoneMusicRequested = phoneMusicRequested, onPhoneMusicConsumed = { phoneMusicRequested = false })
+                            "Player" -> {
+                                val playerPopupProgress by transition.animateFloat(
+                                    transitionSpec = { spring(dampingRatio = .9f, stiffness = 700f, visibilityThreshold = .002f) },
+                                    label = "Player popup to dock"
+                                ) { phase -> if (phase == EnterExitState.Visible) 1f else 0f }
+                                NowPlayingScreen(onLibrary = ::openLibrary, onSettings = { openPlayerSettings() }, onDownload = { navigatingBack = false; detail = it }, onMinimize = ::closePlayer, onPhoneMusic = ::openPhoneMusic, source = playerOrigin, motionProgress = playerPopupProgress)
+                            }
                             "Player Settings" -> PlayerSettingsScreen(onStorage = { openSecondary("Storage") })
-                            "Account" -> AccountScreen(onCloudLibrary = { secondaryOrigin = "Account"; page = "Cloud Library" })
+                            "Account" -> AccountScreen(onCloudLibrary = { secondaryOrigin = "Account"; page = "Cloud Library" }, onSettings = { openSecondary("Settings") }, onPlayerSettings = { openPlayerSettings() }, onDownloads = { page = "Downloads" }, onAbout = { openSecondary("About") })
                             "Cloud Library" -> CloudLibraryScreen()
                             "History" -> HistoryScreen(jobs, { detail = it }, { page = "Home" })
                             "detail" -> jobs.find { it.id == detail }?.let { item -> DownloadDetail(item,
@@ -327,6 +403,8 @@ class MainActivity : ComponentActivity() {
                                 onUpdate = { scope.launch { notice = "Checking for an engine update…"; runCatching { DownloadStore.updateEngine() }.onSuccess { notice = it }.onFailure { error = it.message } } })
                             "Storage" -> StorageScreen(jobs, preferences, onFolder = { folderPicker.launch(null) }, onClear = { scope.launch { runCatching { withContext(Dispatchers.IO) { DownloadStore.clearTemporary() } }.onSuccess { notice = "Cleared ${bytesLabel(it)} of temporary files" }.onFailure { error = it.message } } })
                             "Logs" -> LogScreen(jobs)
+                            "App Updates" -> AppUpdateCheckerScreen()
+                            "About" -> AboutScreen(onDiagnostics = { openSecondary("Logs") }, onUpdates = { openSecondary("App Updates") }, onBack = { navigatingBack = true; page = secondaryOrigin })
                         }
                         }
                     }
@@ -334,7 +412,13 @@ class MainActivity : ComponentActivity() {
                 }
             }
             GlassPopoverOverlay(popoverHost)
-            if (phoneMusicRequested) DeviceMusicPicker(null, onDismiss = { phoneMusicRequested = false }, onChooseFiles = { phoneMusicRequested = false; phoneFiles.launch(arrayOf("audio/*")) })
+            updatePrompt?.let { available ->
+                AppUpdateAvailableDialog(available, onRemindLater = {
+                    context.getSharedPreferences("app_updates", android.content.Context.MODE_PRIVATE).edit()
+                        .putLong("snoozed_until", System.currentTimeMillis() + 24L * 60L * 60L * 1000L).apply()
+                    updatePrompt = null
+                })
+            }
             if (qualitySheet) GlassSheet(onDismissRequest = { qualitySheet = false }) {
                 Column(Modifier.fillMaxWidth().padding(PagePadding).navigationBarsPadding()) {
                     Text(if (audio) "MP3 audio quality" else "Video quality", style = MaterialTheme.typography.headlineSmall)
@@ -384,54 +468,15 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun HomeScreen(url: String, onUrl: (String) -> Unit, audio: Boolean, onAudio: (Boolean) -> Unit, quality: String, onQuality: () -> Unit,
-    playlist: Boolean, onPlaylist: (Boolean) -> Unit, prefs: Preferences, engine: String, busy: Boolean, onAnalyze: () -> Unit, onStorage: () -> Unit,
-    activeCount: Int = 0, onDownloads: () -> Unit = {}, onLibrary: () -> Unit = {}, onPlayer: () -> Unit = {}, onOpenPlaylist: (String) -> Unit = {}) {
-    val context = LocalContext.current
+@Composable private fun HomeScreen(onDownloads: () -> Unit, onLibrary: () -> Unit, onPlayer: () -> Unit, onOpenPlaylist: (String) -> Unit) {
     val library by MusicRepository.state.collectAsStateWithLifecycle()
     val recentDownloads = remember(library.tracks) { library.tracks.filter { it.downloadId != null }.sortedByDescending { it.added }.take(3) }
     val recentPlayed = remember(library.tracks, library.history) { library.tracks.filter { it.id in library.history }.sortedByDescending { library.history[it.id]?.lastPlayed }.take(3) }
-    val keyboard = LocalSoftwareKeyboardController.current
-    var advanced by rememberSaveable { mutableStateOf(false) }
-    fun analyze() { keyboard?.hide(); if (!busy && url.isNotBlank() && engine.contains("ready")) onAnalyze() }
     Column(Modifier.fillMaxSize().testTag("home-page-scroll").verticalScroll(rememberScrollState()).padding(horizontal = PagePadding).padding(top = 8.dp, bottom = LocalMusicBottomPadding.current + 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Download from YouTube", style = MaterialTheme.typography.titleSmall)
-        OutlinedTextField(value = url, onValueChange = onUrl, placeholder = { Text("YouTube link", maxLines = 1, overflow = TextOverflow.Ellipsis) }, singleLine = true,
-            modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(50),
-            colors = OutlinedTextFieldDefaults.colors(focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = .64f),
-                unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = .46f),
-                unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .16f)),
-            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Uri, imeAction = ImeAction.Done), keyboardActions = KeyboardActions(onDone = { analyze() }),
-            trailingIcon = { IconButton(onClick = { if (url.isNotBlank()) onUrl("") else {
-                val clipboard = context.getSystemService(ClipboardManager::class.java)
-                onUrl(clipboard.primaryClip?.getItemAt(0)?.coerceToText(context)?.toString().orEmpty())
-            } }) { Icon(if (url.isBlank()) Icons.Default.ContentPaste else Icons.Default.Close, if (url.isBlank()) "Paste from clipboard" else "Clear URL") } })
-        PrimaryButton(if (busy) "Analyzing…" else "Analyze link", Icons.Default.Search, ::analyze, !busy && url.isNotBlank() && engine.contains("ready"))
-        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
-        FormatSelector(audio, onAudio)
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-            TextButton(onClick = onQuality) {
-                Icon(Icons.Default.HighQuality, null, Modifier.size(18.dp))
-                Text(qualityLabel(audio, quality), Modifier.padding(start = 6.dp), style = MaterialTheme.typography.labelMedium)
-            }
-            TextButton(onClick = { advanced = !advanced }) {
-                Text("Playlist options", style = MaterialTheme.typography.labelMedium)
-                Icon(if (advanced) Icons.Default.ExpandLess else Icons.Default.ExpandMore, if (advanced) "Collapse playlist options" else "Expand playlist options", Modifier.size(18.dp))
-            }
-        }
-        if (advanced) Surface(shape = CardShape, color = MaterialTheme.colorScheme.surface.copy(alpha = .75f)) {
-            Column(Modifier.padding(horizontal = 12.dp)) {
-                ToggleRow("Download playlist", "Analyze all items in a playlist", playlist, onPlaylist)
-                ToggleRow("Create ZIP", "Archive completed media", prefs.autoZip) { DownloadStore.savePrefs(prefs.copy(autoZip = it)) }
-                ToggleRow("Preserve order", "Number downloaded playlist items", prefs.preserveOrder) { DownloadStore.savePrefs(prefs.copy(preserveOrder = it)) }
-            }
-        }
-        if (activeCount > 0) OutlinedButton(onClick = onDownloads, modifier = Modifier.fillMaxWidth()) { Text("$activeCount active downloads") }
         MusicRecentList("Recently Downloaded", recentDownloads, "Your downloaded songs appear here.", onDownloads) { MusicPlayback.play(listOf(it.id)); onPlayer() }
         MusicRecentList("Recently Played", recentPlayed, "Your recent listens appear here.", onLibrary) { MusicPlayback.play(listOf(it.id)); onPlayer() }
         Text("Playlists", style = MaterialTheme.typography.titleMedium)
         library.playlists.take(4).forEach { PlaylistArtworkRow(it, library.tracks) { onOpenPlaylist(it.id) } }
-        ChoiceRow("Save location", prefs.folderName, Icons.Default.FolderOpen, onStorage)
     }
 }
 
@@ -541,21 +586,73 @@ class MainActivity : ComponentActivity() {
     var search by rememberSaveable { mutableStateOf("") }
     var filter by rememberSaveable { mutableStateOf("All") }
     val filtered = jobs.filter { it.terminal && it.media.title.contains(search, true) && when (filter) { "Audio" -> it.audio; "Video" -> !it.audio; "Playlists" -> it.media.playlist; else -> true } }
-    Column(Modifier.fillMaxSize().padding(horizontal = PagePadding), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-        Text("Your library", style = MaterialTheme.typography.headlineLarge)
-        OutlinedTextField(search, { search = it }, placeholder = { Text("Search your history") }, leadingIcon = { Icon(Icons.Default.Search, null) }, modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp))
+    Column(Modifier.fillMaxSize().padding(horizontal = PagePadding).padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        OutlinedTextField(
+            value = search, onValueChange = { search = it },
+            placeholder = { Text("Search downloads", maxLines = 1) },
+            leadingIcon = { Icon(Icons.Default.Search, null, tint = Crimson) },
+            trailingIcon = if (search.isNotEmpty()) ({ IconButton(onClick = { search = "" }) { Icon(Icons.Default.Close, "Clear search") } }) else null,
+            modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(20.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = .62f),
+                unfocusedContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = .48f),
+                focusedBorderColor = Crimson.copy(alpha = .52f),
+                unfocusedBorderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = .12f)
+            )
+        )
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text("${filtered.size} ${if (filtered.size == 1) "item" else "items"}", style = MaterialTheme.typography.titleSmall)
+            Spacer(Modifier.width(6.dp))
+            Text("in download history", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
         FilterTabs(listOf("All", "Audio", "Video", "Playlists"), filter) { filter = it }
-        if (filtered.isEmpty()) EmptyState("Nothing here yet", "Your finished downloads will appear here.", onHome)
-        else LazyColumn(contentPadding = PaddingValues(bottom = LocalMusicBottomPadding.current + 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-            items(filtered, key = { it.id }) { item ->
-                Row(Modifier.fillMaxWidth().clip(CardShape).background(MaterialTheme.colorScheme.surface).clickable { onDetail(item.id) }.padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Thumbnail(item.media.thumbnail, Modifier.size(64.dp).clip(RoundedCornerShape(12.dp)))
-                    Column(Modifier.weight(1f).padding(start = 12.dp)) {
-                        Text(item.media.title, maxLines = 2, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.SemiBold)
-                        Text("${if (item.media.playlist) "Playlist" else if (item.audio) "Audio" else "Video"} · ${bytesLabel(item.bytes)}", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, modifier = Modifier.padding(top = 6.dp))
-                        Text("${SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(item.created))} · ${item.state}", color = if (item.state == "Completed") Success else Crimson, fontSize = 11.sp, modifier = Modifier.padding(top = 4.dp))
+        if (filtered.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                EmptyState(
+                    if (search.isNotBlank()) "No matching downloads" else if (filter == "All") "No download history yet" else "No ${filter.lowercase()} downloads",
+                    if (search.isNotBlank()) "Try a different title or clear your search." else "Completed and stopped downloads will be listed here.",
+                    onHome
+                )
+            }
+        } else LazyColumn(
+            Modifier.weight(1f).fillMaxWidth(),
+            contentPadding = PaddingValues(bottom = LocalMusicBottomPadding.current + 20.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            items(filtered, key = { it.id }, contentType = { "history-item" }) { item ->
+                GlassControlSurface(
+                    Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp)).clickable { onDetail(item.id) },
+                    shape = RoundedCornerShape(20.dp), tintAlpha = .18f
+                ) {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = 11.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Box {
+                            Thumbnail(item.media.thumbnail, Modifier.size(56.dp).clip(RoundedCornerShape(13.dp)))
+                            Surface(
+                                Modifier.align(Alignment.BottomEnd).padding(3.dp),
+                                shape = RoundedCornerShape(5.dp), color = Color.Black.copy(alpha = .76f)
+                            ) {
+                                Text(
+                                    when { item.media.playlist -> "LIST"; item.audio -> "AUDIO"; else -> "VIDEO" },
+                                    Modifier.padding(horizontal = 4.dp, vertical = 2.dp),
+                                    fontSize = 8.sp, lineHeight = 10.sp, color = Color.White
+                                )
+                            }
+                        }
+                        Column(Modifier.weight(1f).padding(horizontal = 11.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(item.media.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleSmall)
+                            Text(
+                                "${bytesLabel(item.bytes)} · ${SimpleDateFormat("dd MMM yyyy", Locale.getDefault()).format(Date(item.created))}",
+                                maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                item.state,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (item.state == "Completed") Success else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        Icon(Icons.Default.ChevronRight, "Open download details", Modifier.size(20.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
-                    Icon(Icons.Default.ChevronRight, "Download actions", modifier = Modifier.size(20.dp))
                 }
             }
         }
@@ -702,13 +799,13 @@ class MainActivity : ComponentActivity() {
     }
 }
 @Composable private fun Label(text: String) { Text(text, fontSize = 11.sp, letterSpacing = 1.3.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-@Composable private fun PrimaryButton(text: String, icon: ImageVector, onClick: () -> Unit, enabled: Boolean = true) {
+@Composable internal fun PrimaryButton(text: String, icon: ImageVector, onClick: () -> Unit, enabled: Boolean = true) {
     Button(onClick = onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), shape = RoundedCornerShape(12.dp), colors = ButtonDefaults.buttonColors(containerColor = Crimson)) {
         Icon(icon, null, Modifier.size(20.dp)); Text(text, fontWeight = FontWeight.Bold, modifier = Modifier.padding(start = 10.dp))
     }
 }
 @Composable private fun BadgeText(text: String) { Surface(color = MaterialTheme.colorScheme.surfaceVariant, shape = RoundedCornerShape(8.dp)) { Text(text, fontSize = 11.sp, modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp)) } }
-@Composable private fun FormatSelector(audio: Boolean, onAudio: (Boolean) -> Unit) {
+@Composable internal fun FormatSelector(audio: Boolean, onAudio: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         listOf(true to "Audio · MP3", false to "Video · MP4").forEach { (isAudio, label) ->
             val selected = isAudio == audio
@@ -729,7 +826,7 @@ class MainActivity : ComponentActivity() {
         Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
-@Composable private fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+@Composable internal fun ToggleRow(title: String, subtitle: String, checked: Boolean, onChange: (Boolean) -> Unit) {
     Row(Modifier.fillMaxWidth().heightIn(min = 56.dp), verticalAlignment = Alignment.CenterVertically) {
         Column(Modifier.weight(1f).padding(end = 12.dp)) { Text(title, fontWeight = FontWeight.Medium, fontSize = 14.sp); Text(subtitle, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }
         Switch(checked, onChange, modifier = Modifier.semantics { contentDescription = title }, colors = SwitchDefaults.colors(checkedTrackColor = Crimson, checkedThumbColor = Color.White))

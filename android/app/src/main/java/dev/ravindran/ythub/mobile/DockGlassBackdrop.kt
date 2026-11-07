@@ -70,6 +70,24 @@ internal fun Modifier.captureDockGlass(state: DockGlassState, atmosphere: Graphi
     }
 }
 
+/** Captures the full underlay only while a glass popover is visible. */
+@Composable
+internal fun Modifier.capturePopoverGlass(atmosphere: GraphicsLayer, target: GraphicsLayer, enabled: Boolean): Modifier {
+    val foreground = rememberGraphicsLayer()
+    return drawWithContent {
+        if (!enabled) {
+            drawContent()
+            return@drawWithContent
+        }
+        foreground.record { this@drawWithContent.drawContent() }
+        target.record(size = IntSize(size.width.toInt(), size.height.toInt())) {
+            drawLayer(atmosphere)
+            drawLayer(foreground)
+        }
+        drawLayer(foreground)
+    }
+}
+
 @Composable
 internal fun DockGlassBackdrop(state: DockGlassState, position: State<Offset>) {
     Box(Modifier.fillMaxSize().drawBehind {

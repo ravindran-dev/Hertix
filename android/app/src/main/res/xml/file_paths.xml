@@ -1,4 +1,5 @@
 <paths xmlns:android="http://schemas.android.com/apk/res/android">
     <external-files-path name="media" path="media/" />
     <files-path name="music-imports" path="music/imports/" />
+    <files-path name="app-updates" path="updates/" />
 </paths>

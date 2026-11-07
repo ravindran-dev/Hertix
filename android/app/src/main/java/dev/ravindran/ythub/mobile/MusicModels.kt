@@ -36,6 +36,10 @@ data class PlaybackSnapshot(
 )
 object MusicRules {
     val extensions = setOf("mp3", "m4a", "aac", "flac", "wav", "ogg", "opus")
+    private const val albumArtistSeparator = "\u001f"
+    fun albumGroupKey(track: LocalTrack) = "${track.album}$albumArtistSeparator${track.artist}"
+    fun albumGroupTitle(key: String) = key.substringBefore(albumArtistSeparator)
+    fun albumGroupArtist(key: String) = key.substringAfter(albumArtistSeparator, "")
     fun audioName(name: String) = name.substringAfterLast('.', "").lowercase() in extensions
     fun merge(existing: List<LocalTrack>, incoming: List<LocalTrack>): List<LocalTrack> {
         val tracks = existing.associateBy { it.id }.toMutableMap()

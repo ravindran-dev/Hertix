@@ -1,6 +1,7 @@
 package dev.ravindran.ythub.mobile
 
 import android.view.View
+import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
@@ -27,6 +28,11 @@ internal class GlassPopoverEntry(val key: Any, val anchor: State<Rect>, val dism
 /** Reuses the app window for menus; dialogs/sheets can still use their own native popup window. */
 internal class GlassPopoverHostState(val view: View) {
     var entry by mutableStateOf<GlassPopoverEntry?>(null)
+    var triggerBounds by mutableStateOf(Rect.Zero)
+    var triggerTime by mutableLongStateOf(0L)
+    fun recordTrigger(bounds: Rect) { triggerBounds = bounds; triggerTime = SystemClock.elapsedRealtime() }
+    fun consumeTrigger(): Rect = triggerBounds.takeIf { !it.isEmpty && SystemClock.elapsedRealtime() - triggerTime < 1_200L }
+        ?.also { triggerBounds = Rect.Zero } ?: Rect.Zero
 }
 
 internal val LocalGlassPopoverHost = staticCompositionLocalOf<GlassPopoverHostState?> { null }
@@ -39,13 +45,15 @@ internal fun rememberGlassPopoverHost(): GlassPopoverHostState {
 
 @Composable
 internal fun HostedGlassPopover(host: GlassPopoverHostState, dismiss: () -> Unit, content: @Composable () -> Unit) {
-    val anchor = remember { mutableStateOf(Rect.Zero) }
+    val marker = remember { mutableStateOf(Rect.Zero) }
+    val anchor = remember { mutableStateOf(host.consumeTrigger()) }
     val key = remember { Any() }
     val currentContent = rememberUpdatedState(content)
     val currentDismiss = rememberUpdatedState(dismiss)
     // This zero-size marker uses its parent's bounds without changing the existing toolbar layout.
     Box(Modifier.onGloballyPositioned { coordinates ->
-        anchor.value = coordinates.parentLayoutCoordinates?.boundsInRoot() ?: coordinates.boundsInRoot()
+        if (anchor.value.isEmpty) marker.value = coordinates.parentLayoutCoordinates?.boundsInRoot() ?: coordinates.boundsInRoot()
+        if (anchor.value.isEmpty && !marker.value.isEmpty) anchor.value = marker.value
     })
     DisposableEffect(host, key) {
         host.entry = GlassPopoverEntry(key, anchor, { currentDismiss.value() }, { currentContent.value() })
@@ -75,7 +83,14 @@ internal fun GlassPopoverOverlay(host: GlassPopoverHostState) {
             val maxY = (constraints.maxHeight - safe.getBottom(this) - menu.height - margin).coerceAtLeast(minY)
             val anchorX = if (layoutDirection == LayoutDirection.Ltr) anchor.right.toInt() - menu.width else anchor.left.toInt()
             val x = anchorX.coerceIn(minX, maxX)
-            val y = (anchor.bottom.toInt() + margin).coerceIn(minY, maxY)
+            val below = anchor.bottom.toInt() + margin
+            val above = anchor.top.toInt() - menu.height - margin
+            val safeBottom = constraints.maxHeight - safe.getBottom(this)
+            val y = when {
+                below + menu.height <= safeBottom -> below.coerceAtLeast(minY)
+                above >= minY -> above
+                else -> below.coerceIn(minY, maxY)
+            }
             layout(constraints.maxWidth, constraints.maxHeight) { menu.place(x, y) }
         } }
     }
