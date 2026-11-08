@@ -140,11 +140,13 @@ class MainActivity : ComponentActivity() {
     LaunchedEffect(Unit) {
         val updates = context.getSharedPreferences("app_updates", android.content.Context.MODE_PRIVATE)
         val now = System.currentTimeMillis()
-        if (now - updates.getLong("last_check", 0L) >= 24L * 60L * 60L * 1000L) {
+        // Check on every fresh app launch so a newly published release is offered promptly.
+        // The user's Remind me later choice suppresses the popup and checks for 24 hours.
+        if (now >= updates.getLong("snoozed_until", 0L)) {
             runCatching { AppUpdater.checkForUpdate() }.onSuccess { status ->
                 updates.edit().putLong("last_check", now).apply()
                 val available = (status as? AppUpdateStatus.Available)?.release
-                if (available != null && now >= updates.getLong("snoozed_until", 0L)) updatePrompt = available
+                if (available != null) updatePrompt = available
             }
         }
     }
