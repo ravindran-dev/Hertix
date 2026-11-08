@@ -539,23 +539,40 @@ class MainActivity : ComponentActivity() {
     var filter by rememberSaveable { mutableStateOf("Completed") }
     val filtered = jobs.filter { when (filter) { "Completed" -> it.state == "Completed"; "Failed" -> it.state in listOf("Failed", "Cancelled"); else -> !it.terminal } }
     LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = PagePadding, end = PagePadding, bottom = LocalMusicBottomPadding.current + 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item { Text("${jobs.count { !it.terminal }} active · ${jobs.count { it.state == "Completed" }} completed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 4.dp)) }
+        item {
+            GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), tintAlpha = .2f) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Box(Modifier.size(38.dp).clip(CircleShape).background(Crimson.copy(alpha = .14f)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Download, null, tint = Crimson, modifier = Modifier.size(20.dp))
+                    }
+                    Column(Modifier.weight(1f).padding(start = 11.dp)) {
+                        Text("Your downloads", style = MaterialTheme.typography.titleSmall)
+                        Text("${jobs.count { !it.terminal }} active  ·  ${jobs.count { it.state == "Completed" }} completed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
         item { FilterTabs(listOf("Active", "Completed", "Failed"), filter) { filter = it } }
-        if (filtered.isEmpty()) item { Box(Modifier.fillMaxWidth().heightIn(max = 420.dp)) { EmptyState(if (filter == "Active") "Your queue is clear" else "No ${filter.lowercase()} downloads", "Paste a YouTube link to save your next favorite.", onHome) } }
+        if (filtered.isEmpty()) item { Box(Modifier.fillMaxWidth().heightIn(max = 420.dp)) { EmptyState(if (filter == "Active") "Your queue is clear" else "No ${filter.lowercase()} downloads", if (filter == "Active") "New downloads and their progress will appear here." else "Start from Explore or YouTube search to add media.", onHome) } }
         else items(filtered, key = { it.id }, contentType = { "download" }) { item -> DownloadCard(item, { onDetail(item.id) }, { onPause(item.id) }, { onResume(item.id) }, { onCancel(item.id) }, onPlay = { onPlay(item.id) }, onAdd = if (music.tracks.any { it.downloadId == item.id }) null else { { onAdd(item.id) } }) }
     }
 }
 
 @Composable private fun DownloadCard(item: DownloadItem, onDetail: () -> Unit, onPause: () -> Unit, onResume: () -> Unit, onCancel: () -> Unit, onPlay: (() -> Unit)? = null, onAdd: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
-    val statusColor = when (item.state) { "Completed" -> Success; "Processing", "Exporting", "Zipping" -> Color(0xFFFFBD66); "Paused", "Interrupted" -> MaterialTheme.colorScheme.onSurfaceVariant; else -> Crimson }
-    Surface(shape = CardShape, color = MaterialTheme.colorScheme.surface.copy(alpha = .72f), border = BorderStroke(.65.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = .07f)), modifier = Modifier.fillMaxWidth().clip(CardShape).glassTouch(onDetail)) {
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    val statusColor = when (item.state) { "Completed" -> Success; "Processing", "Exporting", "Zipping" -> Color(0xFFFFBD66); "Paused", "Interrupted" -> MaterialTheme.colorScheme.onSurfaceVariant; "Failed", "Cancelled" -> MaterialTheme.colorScheme.error; else -> Crimson }
+    GlassControlSurface(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).glassTouch(onDetail), shape = RoundedCornerShape(22.dp), flexible = false, tintAlpha = .25f) {
+        Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Thumbnail(item.media.thumbnail, Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)))
-                Column(Modifier.padding(start = 10.dp).weight(1f)) {
-                    Text(item.media.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    Text("${if (item.audio) "MP3" else "Video"} · ${qualityLabel(item.audio, item.quality)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Box(Modifier.size(58.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
+                    Thumbnail(item.media.thumbnail, Modifier.fillMaxSize())
+                    Surface(Modifier.align(Alignment.BottomStart).padding(4.dp), shape = RoundedCornerShape(6.dp), color = Color.Black.copy(alpha = .78f)) {
+                        Icon(if (item.audio) Icons.Default.MusicNote else Icons.Default.Videocam, null, Modifier.padding(horizontal = 5.dp, vertical = 3.dp).size(12.dp), tint = Color.White)
+                    }
+                }
+                Column(Modifier.padding(start = 11.dp).weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(item.media.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 19.sp)
+                    Text("${if (item.audio) "Audio · MP3" else "Video · MP4"}  ·  ${qualityLabel(item.audio, item.quality)}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 if (item.state == "Completed" && item.audio && item.uris.isNotEmpty() && onPlay != null) IconButton(onClick = onPlay) { Icon(Icons.Default.PlayArrow, "Play completed audio", tint = Crimson) }
                 Box {
@@ -570,14 +587,19 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 DownloadMotionStatus(item.state, statusColor)
-                Text(if (item.state == "Completed") bytesLabel(item.bytes) else "${item.progress.toInt()}%", style = MaterialTheme.typography.labelMedium)
-                if (item.eta > 0 && !item.terminal) Text("ETA ${durationLabel(item.eta)}", style = MaterialTheme.typography.labelMedium)
-                if (item.media.playlist) Text("${item.completedCount} of ${item.media.count} completed", style = MaterialTheme.typography.labelMedium)
+                Spacer(Modifier.weight(1f))
+                Text(if (item.state == "Completed") bytesLabel(item.bytes) else if (item.terminal) item.state else "${item.progress.toInt()}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (!item.terminal) DownloadMotionProgress(item, Modifier.fillMaxWidth().height(3.dp))
-            if (item.error.isNotBlank()) Text("Could not finish · tap for details", maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+            if (!item.terminal) {
+                DownloadMotionProgress(item, Modifier.fillMaxWidth().height(5.dp))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(if (item.media.playlist) "${item.completedCount} of ${item.media.count} songs" else item.line.ifBlank { "Working on your download" }, Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                    if (item.eta > 0) Text("ETA ${durationLabel(item.eta)}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (item.error.isNotBlank()) Text(item.error, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
         }
     }
 }

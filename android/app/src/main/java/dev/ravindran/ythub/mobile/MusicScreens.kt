@@ -148,6 +148,7 @@ private fun SearchSourceSwitch(youtubeSelected: Boolean, onSelectYouTube: () -> 
     var youtubeMode by rememberSaveable { mutableStateOf(true) }
     var youtubeResults by remember { mutableStateOf<List<YouTubeResult>>(emptyList()) }
     var youtubeError by remember { mutableStateOf("") }
+    var youtubeLoading by remember { mutableStateOf(false) }
     var downloadingYouTube by remember { mutableStateOf<String?>(null) }
     var category by rememberSaveable { mutableStateOf("Overview") }
     var sort by rememberSaveable { mutableStateOf("Recently added") }
@@ -191,8 +192,15 @@ private fun SearchSourceSwitch(youtubeSelected: Boolean, onSelectYouTube: () -> 
     LaunchedEffect(category, playlistId, group) { pageScroll?.reset(); val section = "$category:$playlistId:$group"; if (section != previousSection) { listState.scrollToItem(0); previousSection = section } }
     LaunchedEffect(searching) { onSearchChanged(searching); if (searching) { listState.scrollToItem(0); withFrameNanos { }; searchFocus.requestFocus() } }
     LaunchedEffect(query, youtubeMode) {
-        if (!youtubeMode || query.trim().length < 2) { youtubeResults = emptyList(); youtubeError = "" }
-        else try { youtubeResults = searchYouTube(query.trim()); youtubeError = "" } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (e: Exception) { youtubeError = e.message ?: "YouTube search failed" }
+        if (!youtubeMode || query.trim().length < 2) { youtubeResults = emptyList(); youtubeError = ""; youtubeLoading = false }
+        else {
+            youtubeLoading = true
+            youtubeError = ""
+            try { youtubeResults = searchYouTube(query.trim()) }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: Exception) { youtubeResults = emptyList(); youtubeError = e.message ?: "YouTube search failed" }
+            finally { youtubeLoading = false }
+        }
     }
     LaunchedEffect(searching, query) {
         val normalized = query.trim()
@@ -338,29 +346,58 @@ private fun SearchSourceSwitch(youtubeSelected: Boolean, onSelectYouTube: () -> 
         }
         if (searching && searchQuery.isNotBlank()) {
             if (youtubeMode) {
-                if (youtubeError.isNotBlank()) item { Text(youtubeError, color = MaterialTheme.colorScheme.error) }
+                item {
+                    Row(Modifier.fillMaxWidth().padding(top = 4.dp, bottom = 2.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Column(Modifier.weight(1f)) {
+                            Text("YouTube results", style = MaterialTheme.typography.titleMedium)
+                            Text(if (youtubeLoading) "Searching securely…" else "${youtubeResults.size} ${if (youtubeResults.size == 1) "result" else "results"} · Open online or save audio",
+                                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (youtubeLoading) CircularProgressIndicator(Modifier.size(19.dp), color = MobileUi.accent, strokeWidth = 2.dp)
+                    }
+                }
+                if (youtubeError.isNotBlank()) item {
+                    GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(16.dp), tintAlpha = .22f) {
+                        Row(Modifier.padding(14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error)
+                            Text(youtubeError, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium)
+                        }
+                    }
+                }
+                if (!youtubeLoading && youtubeError.isBlank() && youtubeResults.isEmpty()) item {
+                    GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(18.dp), tintAlpha = .18f) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(Icons.Rounded.MusicNote, null, tint = MobileUi.accent, modifier = Modifier.size(25.dp))
+                            Text("No YouTube results", style = MaterialTheme.typography.titleSmall)
+                            Text("Try a different title, artist, or keyword.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
                 itemsIndexed(youtubeResults, key = { _, r -> "youtube-${r.type}-${r.id}" }) { _, result ->
-                    GlassControlSurface(Modifier.fillMaxWidth().padding(vertical = 5.dp), shape = RoundedCornerShape(20.dp), flexible = false, tintAlpha = .32f) {
-                        Column(Modifier.fillMaxWidth().padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    GlassControlSurface(Modifier.fillMaxWidth().padding(vertical = 3.dp), shape = RoundedCornerShape(22.dp), flexible = false, tintAlpha = .25f) {
+                        Column(Modifier.fillMaxWidth().padding(11.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                Box(Modifier.size(84.dp, 64.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
-                                    AsyncImage(result.thumbnail, null, Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
-                                    Surface(Modifier.align(Alignment.BottomStart).padding(4.dp), color = Color.Black.copy(alpha = .72f), shape = RoundedCornerShape(6.dp)) {
-                                        Text(result.type.uppercase(), Modifier.padding(horizontal = 6.dp, vertical = 2.dp), style = MaterialTheme.typography.labelSmall, color = Color.White, maxLines = 1)
+                                Box(Modifier.size(104.dp, 76.dp).clip(RoundedCornerShape(14.dp)).background(MaterialTheme.colorScheme.surfaceVariant)) {
+                                    AsyncImage(result.thumbnail, "${result.title} thumbnail", Modifier.fillMaxSize(), contentScale = androidx.compose.ui.layout.ContentScale.Crop)
+                                    Surface(Modifier.align(Alignment.BottomStart).padding(5.dp), color = Color.Black.copy(alpha = .78f), shape = RoundedCornerShape(7.dp)) {
+                                        Text(result.type.uppercase(), Modifier.padding(horizontal = 7.dp, vertical = 3.dp), style = MaterialTheme.typography.labelSmall, color = Color.White, maxLines = 1)
                                     }
                                 }
-                                Column(Modifier.weight(1f).padding(start = 10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                                Column(Modifier.weight(1f).padding(start = 12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Text(result.title, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 19.sp)
-                                    Text(result.channel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text("YouTube · online", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+                                    Text(result.channel.ifBlank { "YouTube channel" }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
+                                        Icon(Icons.Rounded.Public, null, Modifier.size(13.dp), tint = MobileUi.accent)
+                                        Text("Online source · metadata only", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    }
                                 }
                             }
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedButton(onClick = { openYouTubeLink(context, result.url) }, modifier = Modifier.weight(1f).heightIn(min = 46.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)) {
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(9.dp), verticalAlignment = Alignment.CenterVertically) {
+                                OutlinedButton(onClick = { openYouTubeLink(context, result.url) }, modifier = Modifier.weight(1f).heightIn(min = 44.dp), shape = RoundedCornerShape(15.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp)) {
                                     Icon(Icons.Rounded.OpenInNew, null, Modifier.size(17.dp)); Spacer(Modifier.width(6.dp)); Text("Open", maxLines = 1, softWrap = false)
                                 }
-                                if (result.type == "video") Button(onClick = { enqueueYouTubeAudio(result) }, modifier = Modifier.weight(1f).heightIn(min = 46.dp), enabled = downloadingYouTube == null, contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp)) {
-                                    Icon(Icons.Rounded.Download, null, Modifier.size(17.dp)); Spacer(Modifier.width(6.dp)); Text(if (downloadingYouTube == result.id) "Preparing" else "Download", maxLines = 1, softWrap = false)
+                                if (result.type == "video") Button(onClick = { enqueueYouTubeAudio(result) }, modifier = Modifier.weight(1.15f).heightIn(min = 44.dp), enabled = downloadingYouTube == null, shape = RoundedCornerShape(15.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp)) {
+                                        Icon(if (downloadingYouTube == result.id) Icons.Rounded.Downloading else Icons.Rounded.Download, null, Modifier.size(17.dp)); Spacer(Modifier.width(6.dp)); Text(if (downloadingYouTube == result.id) "Preparing" else "Save audio", maxLines = 1, softWrap = false)
                                 }
                             }
                         }
