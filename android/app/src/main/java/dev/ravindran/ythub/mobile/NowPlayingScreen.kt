@@ -328,9 +328,9 @@ private val Accent = MobileUi.accent
         if (lines.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState())) { TextButton(onClick = { auto = !auto }) { Text(if (auto) "Auto-scroll on" else "Auto-scroll off") }; TextButton(onClick = { auto = true; scope.launch { if (active >= 0) list.animateScrollToItem(active) } }) { Text("Current line") } }
         if (lyrics.isBlank() && lookupState == "loading") {
             LinearProgressIndicator(Modifier.fillMaxWidth())
-            Text("Searching LRCLIB for a matching track…", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Searching lyrics providers for a matching track…", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else if (lyrics.isBlank() && lookupState == "missing") {
-            MusicEmpty("No confident match yet", "We searched by song details and checked alternate title matches. You can retry or import a lyrics file.")
+            MusicEmpty("No confident match yet", "We checked LRCLIB and additional lyrics catalogs. You can retry or import a lyrics file.")
             TextButton(onClick = { lookupAttempt++ }) { Text("Search again") }
         } else if (lyrics.isBlank() && lookupState == "error") {
             Text(lookupError, Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -339,7 +339,7 @@ private val Accent = MobileUi.accent
         else LazyColumn(Modifier.heightIn(max = 400.dp), state = list, verticalArrangement = Arrangement.spacedBy(18.dp)) {
             itemsIndexed(lines) { i, line -> Text(line.text, color = if (i == active) Accent else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleMedium, modifier = Modifier.fillMaxWidth().clickable { MusicPlayback.seek(line.timeMs) }.padding(8.dp)) }
         }
-        if (lyrics.isNotBlank() && lookupState == "available") Text("Lyrics provided by LRCLIB or your local file", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (lyrics.isNotBlank() && lookupState == "available") Text("Lyrics provided by an online catalog or your local file", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         TextButton(onClick = { picker.launch(arrayOf("text/*", "application/octet-stream")) }) { Text("Import local lyrics") }
     }
 }

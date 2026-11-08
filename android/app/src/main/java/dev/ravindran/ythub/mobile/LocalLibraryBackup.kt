@@ -2,10 +2,15 @@ package dev.ravindran.ythub.mobile
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.Download
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.google.gson.Gson
 import kotlinx.coroutines.Dispatchers
@@ -57,9 +62,11 @@ internal fun LocalLibraryBackup() {
     }
     Text("Library backup", style = MaterialTheme.typography.titleMedium)
     Text("Save playlists, favorites and song details. Audio and account credentials are excluded. Restore merges the library; matching playlist IDs use the backup version.", style = MaterialTheme.typography.bodySmall)
-    Row {
-        TextButton(onClick = { export.launch("hertix-library.json") }, enabled = !busy && ready) { Text("Save backup") }
-        TextButton(onClick = { restore.launch(arrayOf("application/json")) }, enabled = !busy && ready) { Text("Restore backup") }
+    Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+        AccountActionButton(if(busy) "Preparing backup…" else "Save library backup", Icons.Outlined.Cloud,
+            { export.launch("hertix-library.json") }, subtitle="Playlists, favorites and song details", enabled=!busy&&ready)
+        AccountActionButton("Restore library backup", Icons.Outlined.Download,
+            { restore.launch(arrayOf("application/json")) }, subtitle="Merge a saved library copy", enabled=!busy&&ready)
+        if(message.isNotBlank()) Text(message, Modifier.padding(horizontal=4.dp), style=MaterialTheme.typography.bodySmall, color=MaterialTheme.colorScheme.onSurfaceVariant)
     }
-    if (message.isNotBlank()) Text(message)
 }

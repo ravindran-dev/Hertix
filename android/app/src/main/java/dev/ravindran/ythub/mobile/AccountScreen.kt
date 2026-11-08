@@ -48,36 +48,40 @@ fun AccountScreen(onCloudLibrary: () -> Unit = {}, onSettings: () -> Unit = {}, 
             Text("Your music, anywhere",style=MaterialTheme.typography.titleLarge)
             Text("Offline on your phone. Online in your account.",style=MaterialTheme.typography.bodySmall,textAlign=TextAlign.Center,color=MaterialTheme.colorScheme.onSurfaceVariant)
         }
-        AccountModule("Offline backup", "Local library safety copy", Icons.Outlined.Save) { LocalLibraryBackup() }
+        AccountModule("Offline backup", "Local library safety copy", Icons.Outlined.Cloud) { LocalLibraryBackup() }
         if(!CloudAccount.configured) {
             Text("Cloud unavailable",style=MaterialTheme.typography.titleLarge)
             Text("Cloud accounts are unavailable in this build. Your local library, backups and downloads are available.")
         } else if(account.userId!=null && mode!="New password") {
             AccountModule("Account", "Sign-in and security", Icons.Outlined.Person) {
-                Text(account.email,style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
-                Text("${if(account.verified) "Email verified" else "Verification pending"} · ${account.status}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                MusicActionRow("Edit profile", Icons.Outlined.Edit, { profileName=account.displayName.ifBlank { account.email.substringBefore('@') }; editingProfile=true }, forward = true)
-                MusicActionRow("Change password", Icons.Outlined.Lock, { mode="New password" }, forward = true)
-                MusicActionRow("Sign out", Icons.Outlined.Logout, { action { CloudAccount.signOut(); message="Signed out" } }, forward = true)
+                Surface(shape=RoundedCornerShape(15.dp),color=MaterialTheme.colorScheme.surface.copy(alpha=.56f),modifier=Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(horizontal=12.dp,vertical=10.dp),verticalArrangement=Arrangement.spacedBy(3.dp)) {
+                        Text(account.email,style=MaterialTheme.typography.bodyMedium,maxLines=1,overflow=TextOverflow.Ellipsis)
+                        Text("${if(account.verified) "Email verified" else "Verification pending"} · ${account.status}",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                AccountActionButton("Edit profile", Icons.Outlined.Edit, { profileName=account.displayName.ifBlank { account.email.substringBefore('@') }; editingProfile=true }, forward = true)
+                AccountActionButton("Change password", Icons.Outlined.Lock, { mode="New password" }, forward = true)
+                AccountActionButton("Sign out", Icons.Outlined.Logout, { action { CloudAccount.signOut(); message="Signed out" } }, forward = true)
             }
             AccountModule("Cloud & Synchronization", "Library, backup and storage", Icons.Outlined.Cloud) { BackupSettingsPanel(onCloudLibrary); BackupConflictReview() }
             AccountModule("Music Player", "Playback and audio preferences", Icons.Outlined.PlayArrow) {
-                MusicActionRow("Playback preferences", Icons.Outlined.Settings, onPlayerSettings, forward = true)
-                MusicActionRow("Audio quality and equalizer", Icons.Outlined.Equalizer, onPlayerSettings, forward = true)
+                AccountActionButton("Playback preferences", Icons.Outlined.Settings, onPlayerSettings, forward = true)
+                AccountActionButton("Audio quality and equalizer", Icons.Outlined.Equalizer, onPlayerSettings, forward = true)
             }
             AccountModule("Downloads", "Queue and storage controls", Icons.Outlined.Download) {
-                MusicActionRow("Download queue", Icons.Outlined.Download, onDownloads, forward = true)
-                MusicActionRow("Download preferences", Icons.Outlined.Settings, onSettings, forward = true)
-                MusicActionRow("Storage management", Icons.Outlined.Storage, onSettings, forward = true)
+                AccountActionButton("Download queue", Icons.Outlined.Download, onDownloads, forward = true)
+                AccountActionButton("Download preferences", Icons.Outlined.Settings, onSettings, forward = true)
+                AccountActionButton("Storage management", Icons.Outlined.Storage, onSettings, forward = true)
             }
-            AccountModule("Appearance", "Theme and interface", Icons.Outlined.Palette) { MusicActionRow("Appearance settings", Icons.Outlined.DarkMode, onSettings, forward = true) }
+            AccountModule("Appearance", "Theme and interface", Icons.Outlined.Palette) { AccountActionButton("Appearance settings", Icons.Outlined.DarkMode, onSettings, forward = true) }
             AccountModule("Privacy & Security", "Account data and sessions", Icons.Outlined.Security) {
                 AccountExportButton()
-                MusicActionRow("Sign out other sessions", Icons.Outlined.Devices, { action { CloudAccount.signOut(true); message="Other refresh sessions revoked. Existing access tokens expire under the server policy." } }, forward = true)
-                MusicActionRow("Delete account", Icons.Outlined.Delete, { deleting=true }, destructive = true)
+                AccountActionButton("Sign out other sessions", Icons.Outlined.Devices, { action { CloudAccount.signOut(true); message="Other refresh sessions revoked. Existing access tokens expire under the server policy." } }, forward = true)
+                AccountActionButton("Delete account", Icons.Outlined.Delete, { deleting=true }, destructive = true)
             }
             AccountModule("About", "Version and diagnostics", Icons.Outlined.Info) {
-                MusicActionRow("About Hertix", Icons.Outlined.Info, onAbout, subtitle = "Version ${BuildConfig.VERSION_NAME}", forward = true)
+                AccountActionButton("About Hertix", Icons.Outlined.Info, onAbout, subtitle = "Version ${BuildConfig.VERSION_NAME}", forward = true)
             }
             if(deleting) AlertDialog(onDismissRequest={if(!busy)deleting=false},title={Text("Permanently delete account?")},text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
                 Text("Your cloud files, playlists and metadata will be deleted. Local downloaded files remain. This cannot be undone.")

@@ -8,11 +8,14 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
+import java.io.StringReader
 import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
 
-/** Metadata-tolerant LRCLIB lookup; positive results are persisted with the local track. */
+/** Strictly matched, multi-provider lyrics lookup with local positive-result caching. */
 internal object LyricsRepository {
     private data class Entry(val lyrics: String?, val expiresAt: Long)
     private data class Record(
@@ -56,7 +59,10 @@ internal object LyricsRepository {
         originalArtist.takeIf(::knownArtist)?.let { exactParams["artist_name"] = it }
         track.album.takeIf { it.isNotBlank() && !it.equals("Unknown album", true) }?.let { exactParams["album_name"] = it }
         duration?.let { exactParams["duration"] = it.toString() }
-        val exact = if (knownArtist(originalArtist)) getRecord("$baseUrl/get", exactParams) else LookupResult.Missing
+        var providerFailure: Exception? = null
+        val exact = if (knownArtist(originalArtist)) runCatching { getRecord("$baseUrl/get", exactParams) }
+            .onFailure { providerFailure = it as? Exception }
+            .getOrDefault(LookupResult.Missing) else LookupResult.Missing
         if (exact is LookupResult.Found) return@withContext cache(key, exact.record.lyrics)
 
         // LRCLIB search does not accept duration; rank results locally so a broad query
@@ -64,7 +70,9 @@ internal object LyricsRepository {
         delay(300)
         val searchParams = linkedMapOf("track_name" to title)
         artist.takeIf(::knownArtist)?.let { searchParams["artist_name"] = it }
-        val records = searchRecords(searchParams)
+        val records = runCatching { searchRecords(searchParams) }
+            .onFailure { providerFailure = it as? Exception }
+            .getOrDefault(emptyList())
         val best = selectBest(records, title, artist, duration)
         if (best != null) return@withContext cache(key, best.lyrics)
 
@@ -73,7 +81,9 @@ internal object LyricsRepository {
         // duration, which is safer than trusting a mismatched artist tag.
         if (knownArtist(artist) && duration != null) {
             delay(300)
-            val titleOnly = searchRecords(linkedMapOf("track_name" to title))
+            val titleOnly = runCatching { searchRecords(linkedMapOf("track_name" to title)) }
+                .onFailure { providerFailure = it as? Exception }
+                .getOrDefault(emptyList())
             val durationMatch = selectBest(titleOnly, title, "", duration)
             if (durationMatch != null) return@withContext cache(key, durationMatch.lyrics)
         }
@@ -82,14 +92,27 @@ internal object LyricsRepository {
         // cleaned signature, and only accept a close title/artist/duration match.
         if (title != originalTitle && knownArtist(artist)) {
             delay(300)
-            val alternate = getRecord("$baseUrl/get", linkedMapOf(
+            val alternate = runCatching { getRecord("$baseUrl/get", linkedMapOf(
                 "track_name" to title,
                 "artist_name" to artist
-            ))
+            )) }.onFailure { providerFailure = it as? Exception }.getOrDefault(LookupResult.Missing)
             if (alternate is LookupResult.Found && selectBest(listOf(alternate.record), title, artist, duration) != null) {
                 return@withContext cache(key, alternate.record.lyrics)
             }
         }
+
+        // The provider chain mirrors BitChord's source-oriented lookup: use the local
+        // lyrics database first, then independently hosted Apple Music TTML sources.
+        // BiniLyrics is particularly useful for non-English catalogs, including Tamil.
+        val bini = runCatching { findBiniLyrics(title, artist, duration, track.album) }
+            .onFailure { providerFailure = it as? Exception }.getOrNull()
+        if (!bini.isNullOrBlank()) return@withContext cache(key, bini)
+
+        val better = runCatching { findBetterLyrics(title, artist, duration, track.album) }
+            .onFailure { providerFailure = it as? Exception }.getOrNull()
+        if (!better.isNullOrBlank()) return@withContext cache(key, better)
+
+        providerFailure?.let { throw IllegalStateException("Lyrics providers could not be reached. Try again later.", it) }
 
         cache(key, null)
     }
@@ -188,11 +211,26 @@ internal object LyricsRepository {
         .filter { it.isNotBlank() && it !in removableTitleWords && it !in setOf("feat", "featuring", "ft") }
         .toSet()
 
-    private fun normalize(value: String): String = Normalizer.normalize(value.lowercase(Locale.ROOT), Normalizer.Form.NFD)
-        .replace(Regex("\\p{Mn}+"), "")
-        .replace(Regex("\\([^)]*\\)|\\[[^]]*]"), " ")
-        .replace(Regex("[^a-z0-9]+"), " ")
-        .trim()
+    private fun normalize(value: String): String {
+        val decomposed = Normalizer.normalize(value.lowercase(Locale.ROOT), Normalizer.Form.NFD)
+        val folded = StringBuilder(decomposed.length)
+        var previousScript = Character.UnicodeScript.COMMON
+        var index = 0
+        while (index < decomposed.length) {
+            val codePoint = Character.codePointAt(decomposed, index)
+            val type = Character.getType(codePoint)
+            val mark = type == Character.NON_SPACING_MARK.toInt() || type == Character.COMBINING_SPACING_MARK.toInt() || type == Character.ENCLOSING_MARK.toInt()
+            // Remove accent marks only from Latin text. Tamil and other Indic marks
+            // change the actual letters and must remain intact for catalog matching.
+            if (!mark || previousScript != Character.UnicodeScript.LATIN) folded.appendCodePoint(codePoint)
+            if (!mark) previousScript = Character.UnicodeScript.of(codePoint)
+            index += Character.charCount(codePoint)
+        }
+        return folded.toString()
+            .replace(Regex("\\([^)]*\\)|\\[[^]]*]"), " ")
+            .replace(Regex("[^\\p{L}\\p{N}]+"), " ")
+            .trim()
+    }
 
     private fun stripDecorations(value: String): String = value
         .replace(Regex("\\([^)]*(official|video|audio|lyrics|visualizer|4k|hd|remaster)[^)]*\\)", RegexOption.IGNORE_CASE), " ")
@@ -207,14 +245,129 @@ internal object LyricsRepository {
     private fun knownArtist(value: String) = value.isNotBlank() &&
         !value.equals("Unknown artist", true) && !value.equals("Various Artists", true) && value != "null"
 
+    private suspend fun findBiniLyrics(title: String, artist: String, duration: Long?, album: String): String? = withContext(Dispatchers.IO) {
+        val params = linkedMapOf("track" to title)
+        artist.takeIf(::knownArtist)?.let { params["artist"] = it }
+        album.takeIf { it.isNotBlank() && !it.equals("Unknown album", true) }?.let { params["album"] = it }
+        duration?.let { params["duration"] = it.toString() }
+        val (status, body) = request("https://lyrics-api.binimum.org/", params)
+        if (status != HttpURLConnection.HTTP_OK || body.length > MAX_PROVIDER_BODY) return@withContext null
+        val hits = runCatching { JSONObject(body).optJSONArray("results") }.getOrNull() ?: return@withContext null
+        val best = (0 until hits.length()).mapNotNull { index ->
+            val hit = runCatching { hits.getJSONObject(index) }.getOrNull() ?: return@mapNotNull null
+            val candidateTitle = hit.optString("track_name").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+            val candidateArtist = hit.optString("artist_name").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
+            val titleScore = tokenScore(tokens(title), tokens(candidateTitle))
+            val artistScore = if (knownArtist(artist)) tokenScore(tokens(artist), tokens(candidateArtist)) else 0.0
+            val candidateDuration = hit.optDouble("duration", 0.0).takeIf { it.isFinite() && it > 0 }
+            val durationDelta = if (duration != null && candidateDuration != null) kotlin.math.abs(candidateDuration - duration) else Double.POSITIVE_INFINITY
+            val exactEnough = if (knownArtist(artist)) titleScore >= .7 && artistScore >= .35 else titleScore >= .96 && durationDelta <= 8.0
+            if (!exactEnough || (duration != null && durationDelta.isFinite() && durationDelta > 20.0)) return@mapNotNull null
+            val url = hit.optString("lyricsUrl")
+            if (!url.startsWith("https://lyrics-storage.binimum.org/")) return@mapNotNull null
+            (hit to (titleScore * .65 + artistScore * .35 + if (durationDelta.isFinite()) (1.0 - durationDelta.coerceAtMost(30.0) / 30.0) * .12 else 0.0))
+        }.sortedByDescending { it.second }
+        val selected = best.firstOrNull() ?: return@withContext null
+        if (best.getOrNull(1)?.let { selected.second - it.second < .06 } == true) return@withContext null
+        val url = selected.first.optString("lyricsUrl")
+        val (documentStatus, document) = request(url, emptyMap())
+        if (documentStatus != HttpURLConnection.HTTP_OK) return@withContext null
+        ttmlToLrc(document)
+    }
+
+    private suspend fun findBetterLyrics(title: String, artist: String, duration: Long?, album: String): String? = withContext(Dispatchers.IO) {
+        if (!knownArtist(artist)) return@withContext null
+        val params = linkedMapOf("s" to title, "a" to artist)
+        duration?.let { params["d"] = it.toString() }
+        album.takeIf { it.isNotBlank() && !it.equals("Unknown album", true) }?.let { params["al"] = it }
+        val (status, body) = request("https://lyrics-api.boidu.dev/getLyrics", params)
+        if (status != HttpURLConnection.HTTP_OK || body.length > MAX_PROVIDER_BODY) return@withContext null
+        val content = providerContent(body)?.decodeProviderEntities()?.trim()?.takeIf(String::isNotBlank) ?: return@withContext null
+        when {
+            content.contains("<tt", ignoreCase = true) -> ttmlToLrc(content)
+            parseLyrics(content).isNotEmpty() -> content
+            content.contains(Regex("(?i)lyrics? (not found|unavailable)|^error")) -> null
+            else -> content
+        }
+    }
+
+    private fun providerContent(raw: String): String? {
+        val root = runCatching { JSONObject(raw) }.getOrNull() ?: return raw
+        if (root.optBoolean("isError") || root.has("error") && !root.isNull("error")) return null
+        val keys = listOf("ttml", "ttmlContent", "lyrics", "syncedLyrics", "plainLyrics", "lrc", "content", "text", "data", "result", "response")
+        for (key in keys) {
+            if (!root.has(key) || root.isNull(key)) continue
+            val value = root.opt(key)
+            when (value) {
+                is String -> {
+                    if (value.isNotBlank()) return providerContent(value) ?: value
+                }
+                is JSONObject -> providerContent(value.toString())?.let { return it }
+                else -> Unit
+            }
+        }
+        return null
+    }
+
+    private fun String.decodeProviderEntities(): String = replace("&lt;", "<", true).replace("&gt;", ">", true)
+        .replace("&quot;", "\"", true).replace("&apos;", "'", true).replace("&#39;", "'", true).replace("&amp;", "&", true)
+
+    /** Convert Apple TTML paragraphs to the player's existing timestamped LRC format. */
+    private fun ttmlToLrc(document: String): String? = runCatching {
+        if (document.length !in 1..MAX_PROVIDER_BODY) return null
+        val parser = XmlPullParserFactory.newInstance().apply { isNamespaceAware = true }.newPullParser()
+        parser.setFeature(XmlPullParser.FEATURE_PROCESS_DOCDECL, false)
+        parser.setInput(StringReader(document))
+        val output = mutableListOf<String>()
+        var begin: Long? = null
+        var text = StringBuilder()
+        var inParagraph = false
+        while (parser.next() != XmlPullParser.END_DOCUMENT) {
+            when (parser.eventType) {
+                XmlPullParser.START_TAG -> if (parser.name.equals("p", true)) {
+                    inParagraph = true
+                    text = StringBuilder()
+                    begin = ttmlTime(parser.getAttributeValue(null, "begin"))
+                } else if (inParagraph && parser.name.equals("br", true)) text.append(' ')
+                XmlPullParser.TEXT, XmlPullParser.CDSECT -> if (inParagraph) text.append(parser.text)
+                XmlPullParser.END_TAG -> if (inParagraph && parser.name.equals("p", true)) {
+                    val start = begin
+                    val line = text.toString().replace(Regex("\\s+"), " ").trim()
+                    if (start != null && line.isNotEmpty()) {
+                        val centiseconds = (start % 1000L) / 10L
+                        output += "[${start / 60_000L}:${((start / 1000L) % 60L).toString().padStart(2, '0')}.${centiseconds.toString().padStart(2, '0')}]$line"
+                    }
+                    inParagraph = false
+                }
+            }
+        }
+        output.takeIf { it.isNotEmpty() }?.joinToString("\n")
+    }.getOrNull()
+
+    private fun ttmlTime(value: String?): Long? = runCatching {
+        val raw = value?.trim()?.takeIf(String::isNotEmpty) ?: return null
+        if (raw.endsWith("ms")) return raw.dropLast(2).toDouble().toLong()
+        val parts = raw.removeSuffix("s").split(':')
+        val seconds = when (parts.size) {
+            1 -> parts[0].toDouble()
+            2 -> parts[0].toDouble() * 60 + parts[1].toDouble()
+            3 -> parts[0].toDouble() * 3600 + parts[1].toDouble() * 60 + parts[2].toDouble()
+            else -> return null
+        }
+        (seconds * 1000).toLong()
+    }.getOrNull()
+
+    private const val MAX_PROVIDER_BODY = 2 * 1024 * 1024
+
     private fun request(endpoint: String, params: Map<String, String>): Pair<Int, String> {
         val query = params.entries.joinToString("&") { (name, value) ->
             "${URLEncoder.encode(name, Charsets.UTF_8.name())}=${URLEncoder.encode(value, Charsets.UTF_8.name())}"
         }
-        val connection = (URL("$endpoint?$query").openConnection() as HttpURLConnection).apply {
+        val requestUrl = endpoint + if (query.isEmpty()) "" else "?$query"
+        val connection = (URL(requestUrl).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
-            connectTimeout = 8_000
-            readTimeout = 12_000
+            connectTimeout = 6_000
+            readTimeout = 8_000
             setRequestProperty("Accept", "application/json")
             setRequestProperty("User-Agent", "Hertix-Android/${BuildConfig.VERSION_NAME} (https://github.com/ravindran-dev/YTHub)")
         }
@@ -225,7 +378,17 @@ internal object LyricsRepository {
                 throw IllegalStateException(if (waitSeconds != null) "Lyrics service is busy. Try again in $waitSeconds seconds." else "Lyrics service is busy. Try again later.")
             }
             val stream = if (status in 200..299) connection.inputStream else connection.errorStream
-            val body = stream?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val body = stream?.bufferedReader()?.use { reader ->
+                val output = StringBuilder()
+                val buffer = CharArray(8192)
+                while (true) {
+                    val count = reader.read(buffer)
+                    if (count < 0) break
+                    output.append(buffer, 0, count)
+                    require(output.length <= MAX_PROVIDER_BODY) { "Lyrics response is too large." }
+                }
+                output.toString()
+            }.orEmpty()
             return status to body
         } finally {
             connection.disconnect()

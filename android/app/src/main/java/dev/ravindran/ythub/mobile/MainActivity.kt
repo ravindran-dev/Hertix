@@ -135,19 +135,23 @@ class MainActivity : ComponentActivity() {
     val popoverOpen = popoverHost.entry != null
     val playerPullOffset = remember { mutableFloatStateOf(0f) }
     val contentOrigin = Offset.Zero
-    var page by rememberSaveable { mutableStateOf("Home") }
+    val showAccountAfterUpdate = remember(context) {
+        BuildConfig.VERSION_CODE >= 1_000_009 &&
+            !context.getSharedPreferences("app_updates", android.content.Context.MODE_PRIVATE)
+                .getBoolean("account_default_1_0_9_seen", false)
+    }
+    var page by rememberSaveable { mutableStateOf(if (showAccountAfterUpdate) "Account" else "Home") }
     var updatePrompt by remember { mutableStateOf<YTHubRelease?>(null) }
     LaunchedEffect(Unit) {
         val updates = context.getSharedPreferences("app_updates", android.content.Context.MODE_PRIVATE)
+        if (showAccountAfterUpdate) updates.edit().putBoolean("account_default_1_0_9_seen", true).apply()
         val now = System.currentTimeMillis()
-        // Check on every fresh app launch so a newly published release is offered promptly.
-        // The user's Remind me later choice suppresses the popup and checks for 24 hours.
-        if (now >= updates.getLong("snoozed_until", 0L)) {
-            runCatching { AppUpdater.checkForUpdate() }.onSuccess { status ->
-                updates.edit().putLong("last_check", now).apply()
-                val available = (status as? AppUpdateStatus.Available)?.release
-                if (available != null) updatePrompt = available
-            }
+        // Recheck on every fresh launch. “Remind me later” dismisses only this launch's popup;
+        // an available update is offered again next time the user opens Hertix.
+        runCatching { AppUpdater.checkForUpdate() }.onSuccess { status ->
+            updates.edit().putLong("last_check", now).apply()
+            val available = (status as? AppUpdateStatus.Available)?.release
+            if (available != null) updatePrompt = available
         }
     }
     val openBackup by CloudBackupPolicy.openAccount.collectAsStateWithLifecycle()
@@ -416,8 +420,6 @@ class MainActivity : ComponentActivity() {
             GlassPopoverOverlay(popoverHost)
             updatePrompt?.let { available ->
                 AppUpdateAvailableDialog(available, onRemindLater = {
-                    context.getSharedPreferences("app_updates", android.content.Context.MODE_PRIVATE).edit()
-                        .putLong("snoozed_until", System.currentTimeMillis() + 24L * 60L * 60L * 1000L).apply()
                     updatePrompt = null
                 })
             }

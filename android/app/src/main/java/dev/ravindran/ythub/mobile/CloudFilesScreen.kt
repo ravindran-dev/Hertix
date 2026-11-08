@@ -3,6 +3,8 @@ package dev.ravindran.ythub.mobile
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -75,6 +77,6 @@ fun AccountExportButton() {
             context.contentResolver.openOutputStream(uri,"wt")?.bufferedWriter()?.use {it.write(result.toString())} ?: error("File unavailable")
         };message="Account metadata exported. Audio files are not included."} catch(_:Exception){message="Export failed. Retry when connected."}
     } }
-    OutlinedButton(onClick={launcher.launch("hertix-account-export.json")}){Text("Export account data")}
-    if(message.isNotBlank())Text(message)
+    AccountActionButton("Export account data", Icons.Outlined.FileDownload, {launcher.launch("hertix-account-export.json")}, subtitle="Save your account metadata as JSON")
+    if(message.isNotBlank())Text(message,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
 }

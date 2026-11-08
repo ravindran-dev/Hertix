@@ -9,6 +9,10 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.platform.testTag
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Cloud
+import androidx.compose.material.icons.outlined.Pause
+import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
@@ -37,14 +41,12 @@ internal fun BackupSettingsPanel(onOnline:()->Unit) {
     Text("Offline stays on this phone. Online stores the data and music you allow in your account.",style=MaterialTheme.typography.bodySmall)
     if(!consent.data && !consent.music)Text("Nothing is uploaded until you allow it.")
     else Text("${if(consent.automatic) "Automatic" else "Manual"} · ${if(consent.mobile) "Wi-Fi or mobile data" else "Wi-Fi only"} · ${listOfNotNull(if(consent.data) "library data" else null,if(consent.music) "music files" else null).joinToString(" + ")}")
-    OutlinedButton(onClick=::edit,enabled=!progress.busy) {Text("Choose what to back up")}
-    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
-        Button(onClick={try {CloudBackupPolicy.schedule(context)} catch(e:Exception){message=e.message.orEmpty()}},enabled=!progress.busy&&(consent.data||consent.music)) {Text("Back up now")}
-        if(progress.busy)TextButton(onClick={CloudBackupPolicy.stop(context)}) {Text("Pause")}
-    }
-    Text(progress.message,style=MaterialTheme.typography.bodySmall)
-    if(progress.busy) {LinearProgressIndicator(progress={progress.percent/100f},modifier=Modifier.fillMaxWidth());Text("${progress.percent}%",style=MaterialTheme.typography.labelSmall)}
-    TextButton(onClick=onOnline) {Text("Open Online library")}
+    AccountActionButton("Choose backup contents", Icons.Outlined.Tune, ::edit, subtitle="Select music, library data and network rules", enabled=!progress.busy)
+    if(progress.busy) AccountActionButton("Pause cloud backup", Icons.Outlined.Pause, {CloudBackupPolicy.stop(context)}, subtitle="${progress.percent}% complete", enabled=true)
+    else AccountActionButton("Back up now", Icons.Outlined.Cloud, {try {CloudBackupPolicy.schedule(context)} catch(e:Exception){message=e.message.orEmpty()}}, subtitle="Upload only the items you allowed", enabled=consent.data||consent.music)
+    if(progress.message.isNotBlank()) Text(progress.message,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+    if(progress.busy) LinearProgressIndicator(progress={progress.percent/100f},modifier=Modifier.fillMaxWidth())
+    AccountActionButton("Open Online library", Icons.Outlined.Cloud, onOnline, subtitle="Browse files saved to your account")
     if(message.isNotBlank())Text(message)
     if(editing)AlertDialog(onDismissRequest={editing=false},title={Text("Allow cloud backup?")},text={Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Row {Checkbox(data,{data=it},Modifier.testTag("backup-consent-data"));Column {Text("Library data");Text("Playlists, favorites and song details",style=MaterialTheme.typography.bodySmall)}}

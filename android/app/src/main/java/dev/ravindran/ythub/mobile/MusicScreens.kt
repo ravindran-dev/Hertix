@@ -198,7 +198,7 @@ private fun SearchSourceSwitch(youtubeSelected: Boolean, onSelectYouTube: () -> 
             youtubeError = ""
             try { youtubeResults = searchYouTube(query.trim()) }
             catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (e: Exception) { youtubeResults = emptyList(); youtubeError = e.message ?: "YouTube search failed" }
+            catch (e: Exception) { youtubeResults = emptyList(); youtubeError = youtubeSearchErrorMessage(e.message) }
             finally { youtubeLoading = false }
         }
     }
@@ -550,6 +550,19 @@ private fun SearchSourceSwitch(youtubeSelected: Boolean, onSelectYouTube: () -> 
         "Remove from playlist" to { MusicRepository.playlist(playlist.name, playlist.tracks.toMutableList().apply { removeAt(optionsIndex) }, playlist.id); options = null }
     ) else emptyList()) }
     addTracks?.let { ids -> PlaylistPicker(ids) { addTracks = null; selected = emptySet() } }
+}
+
+private fun youtubeSearchErrorMessage(raw: String?): String {
+    val detail = raw.orEmpty()
+    val normalized = detail.lowercase()
+    return when {
+        "quotaexceeded" in normalized || "daily limit" in normalized ||
+            ("quota" in normalized && "search quer" in normalized) ->
+            "YouTube search has reached this project's daily limit. Try again later, or search your Library meanwhile."
+        "429" in normalized || "rate limit" in normalized ->
+            "YouTube search is busy right now. Wait a little and try again."
+        else -> detail.ifBlank { "YouTube search failed. Please try again." }
+    }
 }
 @Composable private fun MusicTrackRow(track: LocalTrack, number: Int? = null, selected: Boolean, selectionActive: Boolean, showCheckbox: Boolean, onSelect: () -> Unit, onPlay: () -> Unit, onMore: () -> Unit) {
     val currentFlow=remember {MusicPlayback.state.map {it.track?.id to it.playing}.distinctUntilChanged()}
