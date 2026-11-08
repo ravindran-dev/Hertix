@@ -574,7 +574,6 @@ class MainActivity : ComponentActivity() {
     Column(Modifier.fillMaxSize().padding(horizontal = PagePadding).padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
-                Text("Downloads", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                 Text("${jobs.count { !it.terminal }} active  ·  ${jobs.count { it.state == "Completed" }} completed  ·  ${jobs.count { it.state in listOf("Failed", "Cancelled") }} failed",
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
@@ -582,7 +581,7 @@ class MainActivity : ComponentActivity() {
                 Icon(Icons.Default.Download, null, tint = Crimson, modifier = Modifier.size(21.dp))
             }
         }
-        DownloadStatusTabs(filter, activeCount, completeCount, failedCount) { filter = it }
+        DownloadStatusTabs(filter) { filter = it }
         if (filtered.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 EmptyState(if (filter == "Active") "Your queue is clear" else "No ${filter.lowercase()} downloads",
@@ -600,9 +599,8 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun DownloadStatusTabs(selected: String, active: Int, completed: Int, failed: Int, onSelect: (String) -> Unit) {
+@Composable private fun DownloadStatusTabs(selected: String, onSelect: (String) -> Unit) {
     val options = listOf("Active", "Completed", "Failed")
-    val counts = listOf(active, completed, failed)
     GlassControlSurface(Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(50), tintAlpha = .30f, flexible = false) {
         BoxWithConstraints(Modifier.fillMaxSize().padding(4.dp)) {
             val segment = maxWidth / options.size
@@ -614,13 +612,9 @@ class MainActivity : ComponentActivity() {
             Row(Modifier.fillMaxSize()) {
                 options.forEachIndexed { index, option ->
                     Box(Modifier.weight(1f).fillMaxHeight().clip(capsule).clickable { onSelect(option) }, contentAlignment = Alignment.Center) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(option, style = MaterialTheme.typography.labelLarge,
                             color = if (selected == option) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = if (selected == option) FontWeight.SemiBold else FontWeight.Normal)
-                        Text(counts[index].toString(), style = MaterialTheme.typography.labelSmall,
-                            color = if (selected == option) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
                     }
                 }
             }

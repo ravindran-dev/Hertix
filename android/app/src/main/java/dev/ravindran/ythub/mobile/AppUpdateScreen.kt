@@ -68,13 +68,13 @@ internal fun AppUpdateAvailableDialog(release: YTHubRelease, onRemindLater: () -
     val hasNotes = notes != "Release notes are not available."
     Dialog(onDismissRequest = onRemindLater, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         GlassWindowBlur()
-        val panelHeight = (height * if (hasNotes) .76f else .58f).coerceIn(if (hasNotes) 440.dp else 390.dp, if (hasNotes) 680.dp else 520.dp).coerceAtMost(height - 32.dp)
+        val panelHeight = (height * if (hasNotes) .66f else .48f).coerceIn(if (hasNotes) 430.dp else 340.dp, if (hasNotes) 590.dp else 440.dp).coerceAtMost(height - 32.dp)
         LiquidGlassPanel(
             Modifier.width(minOf(width - 40.dp, 460.dp)).height(panelHeight).clip(RoundedCornerShape(34.dp)),
             backdrop = LocalGlassScene.current?.layer ?: LocalAtmosphereLayer.current,
             contentOrigin = LocalGlassScene.current?.origin ?: Offset.Zero,
             radius = 34.dp,
-            tintAlpha = .11f,
+            tintAlpha = .07f,
             animateOnTouch = false
         ) {
             Column(Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 18.dp)) {

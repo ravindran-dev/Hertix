@@ -341,7 +341,7 @@ private val Accent = MobileUi.accent
                 Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.dp)
                     Text("Searching lyric catalogs…", style = MaterialTheme.typography.bodyLarge)
-                    Text("Checking Tamil and English sources for a matching recording.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Checking lyrics catalogs for a match in this recording’s language.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
         } else if (lyrics.isBlank() && lookupState == "missing") {

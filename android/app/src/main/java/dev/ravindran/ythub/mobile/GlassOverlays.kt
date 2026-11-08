@@ -88,7 +88,7 @@ internal fun GlassWindowBlur() {
         val window = provider?.window
         if (Build.VERSION.SDK_INT >= 31 && window != null) {
             window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-            window.attributes = window.attributes.apply { blurBehindRadius = 32 }
+            window.attributes = window.attributes.apply { blurBehindRadius = 48 }
         }
         onDispose {
             if (Build.VERSION.SDK_INT >= 31) window?.clearFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
