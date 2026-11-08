@@ -34,7 +34,7 @@ Minimum Android 8; ARM64 phones and x86-64 emulators are included. The app reque
 - Home accepts HTTPS YouTube links, analyzes single media or playlists, and lets you choose MP3/MP4, bitrate/quality, ordering and ZIP export. MP3 defaults to 320 kbps.
 - Media details show actual metadata and thumbnails. Playlists show available entries, capped at 500 per analysis; the UI explicitly displays the limit.
 - A persistent FIFO queue runs 1–3 playlist/single jobs at once (default 2), with foreground progress notification, pause/cancel/resume, retry, network retries and partial-file continuation. Each playlist processes items sequentially.
-- Completed audio plays inside YTHub through Media3, with a local library, playlists, queue, favorites, local lyrics, sleep timer and session-scoped audio effects. Videos open with an installed video player. See [music player implementation and limits](../docs/MUSIC_PLAYER.md).
+- Completed audio plays inside YTHub through Media3, with a local library, playlists, queue, favorites, embedded/imported lyrics and automatic LRCLIB lookup for synchronized or plain lyrics, sleep timer and session-scoped audio effects. Videos open with an installed video player. See [music player implementation and limits](../docs/MUSIC_PLAYER.md).
 - Folders can be opened through a file manager, and URLs copied. ZIP export streams local files; individual media retention is configurable.
 - History includes search, Audio/Video/Playlist filters, details, retry and removal. Removing a history row leaves exported files intact.
 - Settings include dark/light/system appearance, default quality, concurrency, auto start, folder selection, ZIP options, notifications, retries, imported Netscape cookies, proxy, engine updates and per-download error logs.

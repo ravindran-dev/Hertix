@@ -291,23 +291,55 @@ private val Accent = Color(0xFFFF173D)
 }
 @Composable private fun LyricsPanel(track: LocalTrack) {
     val player by MusicPlayback.state.collectAsStateWithLifecycle()
+    val library by MusicRepository.state.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
-    val lines = remember(track.lyrics) { parseLyrics(track.lyrics) }
+    val savedLyrics = library.tracks.firstOrNull { it.id == track.id }?.lyrics.orEmpty()
+    val lyrics = savedLyrics.ifBlank { track.lyrics }
+    val lines = remember(lyrics) { parseLyrics(lyrics) }
     val list = rememberLazyListState()
     var auto by remember { mutableStateOf(true) }
+    var lookupAttempt by remember(track.id) { mutableIntStateOf(0) }
+    var lookupState by remember(track.id) { mutableStateOf("loading") }
+    var lookupError by remember(track.id) { mutableStateOf("") }
     val active = lines.indexOfLast { it.timeMs <= player.position }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) scope.launch {
         runCatching { MusicRepository.attachLyrics(track.id, uri) }.onFailure { MusicRepository.message.value = it.message }
     } }
+    LaunchedEffect(track.id, lyrics, lookupAttempt) {
+        if (lyrics.isNotBlank()) {
+            lookupState = "available"
+            return@LaunchedEffect
+        }
+        lookupState = "loading"
+        lookupError = ""
+        runCatching { LyricsRepository.find(track) }
+            .onSuccess { found ->
+                if (found.isNullOrBlank()) lookupState = "missing"
+                else {
+                    MusicRepository.saveLyrics(track.id, found)
+                    lookupState = "available"
+                }
+            }
+            .onFailure { lookupError = it.message ?: "Could not look up lyrics."; lookupState = "error" }
+    }
     LaunchedEffect(active, auto) { if (auto && active >= 0 && !list.isScrollInProgress) list.animateScrollToItem(active) }
     Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp)) {
         Text("Lyrics", style = MaterialTheme.typography.headlineSmall)
-        Row(Modifier.horizontalScroll(rememberScrollState())) { TextButton(onClick = { auto = !auto }) { Text(if (auto) "Auto-scroll on" else "Auto-scroll off") }; TextButton(onClick = { auto = true; scope.launch { if (active >= 0) list.animateScrollToItem(active) } }) { Text("Current line") } }
-        if (track.lyrics.isBlank()) MusicEmpty("No local lyrics", "Import an associated LRC or text file. Timestamped LRC lines follow playback.")
-        else if (lines.isEmpty()) Text(track.lyrics, Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(vertical = 16.dp))
+        if (lines.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState())) { TextButton(onClick = { auto = !auto }) { Text(if (auto) "Auto-scroll on" else "Auto-scroll off") }; TextButton(onClick = { auto = true; scope.launch { if (active >= 0) list.animateScrollToItem(active) } }) { Text("Current line") } }
+        if (lyrics.isBlank() && lookupState == "loading") {
+            LinearProgressIndicator(Modifier.fillMaxWidth())
+            Text("Searching LRCLIB for a matching track…", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else if (lyrics.isBlank() && lookupState == "missing") {
+            MusicEmpty("No lyrics found", "LRCLIB has no matching lyrics for this title, artist and duration.")
+            TextButton(onClick = { lookupAttempt++ }) { Text("Search again") }
+        } else if (lyrics.isBlank() && lookupState == "error") {
+            Text(lookupError, Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            TextButton(onClick = { lookupAttempt++ }) { Text("Try again") }
+        } else if (lines.isEmpty()) Text(lyrics, Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(vertical = 16.dp))
         else LazyColumn(Modifier.heightIn(max = 400.dp), state = list, verticalArrangement = Arrangement.spacedBy(18.dp)) {
             itemsIndexed(lines) { i, line -> Text(line.text, color = if (i == active) Accent else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleMedium, modifier = Modifier.fillMaxWidth().clickable { MusicPlayback.seek(line.timeMs) }.padding(8.dp)) }
         }
+        if (lyrics.isNotBlank() && lookupState == "available") Text("Lyrics provided by LRCLIB or your local file", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         TextButton(onClick = { picker.launch(arrayOf("text/*", "application/octet-stream")) }) { Text("Import local lyrics") }
     }
 }

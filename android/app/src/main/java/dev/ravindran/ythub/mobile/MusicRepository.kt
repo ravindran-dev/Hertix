@@ -268,6 +268,10 @@ object MusicRepository {
         } ?: error("Could not read lyrics")
         update { it.copy(tracks = it.tracks.map { t -> if (t.id == id) t.copy(lyrics = text) else t }) }
     }
+    fun saveLyrics(id: String, text: String) {
+        if (text.isBlank()) return
+        update { it.copy(tracks = it.tracks.map { track -> if (track.id == id && track.lyrics.isBlank()) track.copy(lyrics = text) else track }) }
+    }
     /** Each import gets an isolated private directory; no existing destination is overwritten. */
     suspend fun extractPlaylist(uri: Uri, name: String) = withContext(Dispatchers.IO) { scanLock.withLock {
         val destination = File(root, "imports/${UUID.randomUUID()}").apply { mkdirs() }
