@@ -361,7 +361,7 @@ internal object LyricsRepository {
             })
         val selected = candidates.mapNotNull { candidate ->
             val song = candidate.optString("song")
-            val candidateArtist = candidate.optString("artist")
+            val candidateArtist = candidate.optString("artist").ifBlank { candidate.optString("singer") }
             val titleScore = tokenScore(tokens(title), tokens(song))
             val artistScore = if (knownArtist(artist)) tokenScore(tokens(artist), tokens(candidateArtist)) else 0.0
             val score = if (knownArtist(artist)) titleScore * .65 + artistScore * .35 else titleScore
