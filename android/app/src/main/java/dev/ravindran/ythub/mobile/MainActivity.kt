@@ -23,6 +23,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
@@ -69,6 +70,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -436,9 +439,10 @@ class MainActivity : ComponentActivity() {
             }
             if (error != null) GlassConfirmDialog(onDismissRequest = { error = null }, icon = { Icon(Icons.Default.ErrorOutline, null, tint = Crimson) }, title = { Text("Something needs attention") },
                 text = { Column(Modifier.heightIn(max = 300.dp).verticalScroll(rememberScrollState())) { Text(error!!) } }, confirmButton = { TextButton(onClick = { error = null }) { Text("Got it") } })
-            if (confirmCancel != null) GlassConfirmDialog(onDismissRequest = { confirmCancel = null }, title = { Text("Cancel this download?") },
-                text = { Text("Downloaded parts are kept so you can retry later.") }, dismissButton = { TextButton(onClick = { confirmCancel = null }) { Text("Keep downloading") } },
-                confirmButton = { TextButton(onClick = { act { DownloadStore.cancel(confirmCancel!!) }; confirmCancel = null }) { Text("Cancel download") } })
+            confirmCancel?.let { downloadId -> CancelDownloadDialog(
+                onDismiss = { confirmCancel = null },
+                onConfirm = { act { DownloadStore.cancel(downloadId) }; confirmCancel = null }
+            ) }
             androidx.compose.animation.AnimatedVisibility(visible = !musicReady,
                 enter = androidx.compose.animation.fadeIn(androidx.compose.animation.core.tween(180)),
                 exit = androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(160)), modifier = Modifier.matchParentSize()) {
@@ -542,23 +546,78 @@ class MainActivity : ComponentActivity() {
     val music by MusicRepository.state.collectAsStateWithLifecycle()
     var filter by rememberSaveable { mutableStateOf("Completed") }
     val filtered = jobs.filter { when (filter) { "Completed" -> it.state == "Completed"; "Failed" -> it.state in listOf("Failed", "Cancelled"); else -> !it.terminal } }
-    LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(start = PagePadding, end = PagePadding, bottom = LocalMusicBottomPadding.current + 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
-        item {
-            GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), tintAlpha = .2f) {
-                Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(38.dp).clip(CircleShape).background(Crimson.copy(alpha = .14f)), contentAlignment = Alignment.Center) {
-                        Icon(Icons.Default.Download, null, tint = Crimson, modifier = Modifier.size(20.dp))
-                    }
-                    Column(Modifier.weight(1f).padding(start = 11.dp)) {
-                        Text("Your downloads", style = MaterialTheme.typography.titleSmall)
-                        Text("${jobs.count { !it.terminal }} active  ·  ${jobs.count { it.state == "Completed" }} completed", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(Modifier.fillMaxSize().padding(horizontal = PagePadding).padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text("Downloads", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+                Text("${jobs.count { !it.terminal }} active  ·  ${jobs.count { it.state == "Completed" }} completed  ·  ${jobs.count { it.state in listOf("Failed", "Cancelled") }} failed",
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            }
+            Box(Modifier.size(42.dp).clip(CircleShape).background(Crimson.copy(alpha = .14f)), contentAlignment = Alignment.Center) {
+                Icon(Icons.Default.Download, null, tint = Crimson, modifier = Modifier.size(21.dp))
+            }
+        }
+        DownloadStatusTabs(filter) { filter = it }
+        if (filtered.isEmpty()) {
+            Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+                EmptyState(if (filter == "Active") "Your queue is clear" else "No ${filter.lowercase()} downloads",
+                    if (filter == "Active") "New downloads and their progress will appear here." else "Start from Explore or YouTube search to add media.", onHome)
+            }
+        } else LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = LocalMusicBottomPadding.current + 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(filtered, key = { it.id }, contentType = { "download" }) { item ->
+                DownloadCard(item, { onDetail(item.id) }, { onPause(item.id) }, { onResume(item.id) }, { onCancel(item.id) },
+                    onPlay = { onPlay(item.id) }, onAdd = if (music.tracks.any { it.downloadId == item.id }) null else { { onAdd(item.id) } })
+            }
+        }
+    }
+}
+
+@Composable private fun DownloadStatusTabs(selected: String, onSelect: (String) -> Unit) {
+    val options = listOf("Active", "Completed", "Failed")
+    GlassControlSurface(Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(50), tintAlpha = .30f, flexible = false) {
+        BoxWithConstraints(Modifier.fillMaxSize().padding(4.dp)) {
+            val segment = maxWidth / options.size
+            val target = segment * options.indexOf(selected).coerceAtLeast(0)
+            val position by animateDpAsState(target, spring(dampingRatio = .82f, stiffness = 480f), label = "Download status pill")
+            val capsule = RoundedCornerShape(50)
+            Box(Modifier.offset(x = position).width(segment).fillMaxHeight().clip(capsule)
+                .background(Color.White.copy(alpha = .20f)).border(.5.dp, Color.White.copy(alpha = .11f), capsule))
+            Row(Modifier.fillMaxSize()) {
+                options.forEach { option ->
+                    Box(Modifier.weight(1f).fillMaxHeight().clip(capsule).clickable { onSelect(option) }, contentAlignment = Alignment.Center) {
+                        Text(option, style = MaterialTheme.typography.labelLarge,
+                            color = if (selected == option) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = if (selected == option) FontWeight.SemiBold else FontWeight.Normal)
                     }
                 }
             }
         }
-        item { FilterTabs(listOf("Active", "Completed", "Failed"), filter) { filter = it } }
-        if (filtered.isEmpty()) item { Box(Modifier.fillMaxWidth().heightIn(max = 420.dp)) { EmptyState(if (filter == "Active") "Your queue is clear" else "No ${filter.lowercase()} downloads", if (filter == "Active") "New downloads and their progress will appear here." else "Start from Explore or YouTube search to add media.", onHome) } }
-        else items(filtered, key = { it.id }, contentType = { "download" }) { item -> DownloadCard(item, { onDetail(item.id) }, { onPause(item.id) }, { onResume(item.id) }, { onCancel(item.id) }, onPlay = { onPlay(item.id) }, onAdd = if (music.tracks.any { it.downloadId == item.id }) null else { { onAdd(item.id) } }) }
+    }
+}
+
+@Composable private fun CancelDownloadDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    val scene = LocalGlassScene.current
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 28.dp), contentAlignment = Alignment.Center) {
+            LiquidGlassPanel(Modifier.fillMaxWidth().widthIn(max = 400.dp), backdrop = scene?.layer,
+                contentOrigin = scene?.origin ?: Offset.Zero, radius = 30.dp, tintAlpha = .16f, animateOnTouch = false) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(Modifier.size(48.dp).clip(CircleShape).background(Crimson.copy(alpha = .14f)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.Download, null, tint = Crimson, modifier = Modifier.size(23.dp))
+                    }
+                    Text("Cancel this download?", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text("Downloaded parts are kept so you can retry later.", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Spacer(Modifier.height(2.dp))
+                    OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text("Keep Downloading") }
+                    TextButton(onClick = onConfirm, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                        Text("Cancel Download", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
     }
 }
 
