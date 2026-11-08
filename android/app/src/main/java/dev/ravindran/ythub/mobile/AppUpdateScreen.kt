@@ -68,25 +68,25 @@ internal fun AppUpdateAvailableDialog(release: YTHubRelease, onRemindLater: () -
     val hasNotes = notes != "Release notes are not available."
     Dialog(onDismissRequest = onRemindLater, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         GlassWindowBlur()
-        val panelHeight = (height * if (hasNotes) .66f else .48f).coerceIn(if (hasNotes) 430.dp else 340.dp, if (hasNotes) 590.dp else 440.dp).coerceAtMost(height - 32.dp)
+        val panelMaxHeight = (height * .82f).coerceAtMost(680.dp)
         LiquidGlassPanel(
-            Modifier.width(minOf(width - 40.dp, 460.dp)).height(panelHeight).clip(RoundedCornerShape(34.dp)),
+            Modifier.width(minOf(width - 48.dp, 400.dp)).heightIn(min = 300.dp, max = panelMaxHeight).clip(RoundedCornerShape(30.dp)),
             backdrop = LocalGlassScene.current?.layer ?: LocalAtmosphereLayer.current,
             contentOrigin = LocalGlassScene.current?.origin ?: Offset.Zero,
             radius = 34.dp,
-            tintAlpha = .07f,
+            tintAlpha = .18f,
             animateOnTouch = false
         ) {
-            Column(Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 18.dp)) {
+            Column(Modifier.fillMaxWidth().heightIn(max = panelMaxHeight).padding(horizontal = 20.dp, vertical = 18.dp)) {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Software Update", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
                     Text("Hertix ${release.versionName} is available to download.", Modifier.padding(top = 7.dp), style = MaterialTheme.typography.bodyLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
                 HorizontalDivider(Modifier.padding(top = 18.dp, bottom = 14.dp), color = Color.White.copy(alpha = .18f))
                 Text("What’s new", Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (hasNotes) Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = 10.dp, bottom = 12.dp)) {
+                if (hasNotes) Column(Modifier.fillMaxWidth().heightIn(max = 190.dp).verticalScroll(rememberScrollState()).padding(top = 10.dp, bottom = 12.dp)) {
                     Text(notes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
-                } else Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopStart) {
+                } else Box(Modifier.fillMaxWidth().padding(bottom = 6.dp), contentAlignment = Alignment.TopStart) {
                     Text(notes, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 HorizontalDivider(color = Color.White.copy(alpha = .18f))

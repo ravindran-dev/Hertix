@@ -11,6 +11,7 @@ import java.net.URL
 import java.net.URLEncoder
 import java.io.StringReader
 import java.text.Normalizer
+import java.util.Base64
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
 import org.xmlpull.v1.XmlPullParser
@@ -62,6 +63,12 @@ internal object LyricsRepository {
         val videoLyrics = runCatching { findSimpMusicLyrics(track, title, artist, duration) }
             .onFailure { providerFailure = it as? Exception }.getOrNull()
         if (!videoLyrics.isNullOrBlank()) return@withContext cache(key, videoLyrics)
+
+        // KuGou's public lyric catalogue has broader non-English coverage than
+        // LRCLIB and returns line-synced LRC without requiring an API key.
+        val kugou = runCatching { findKuGouLyrics(title, artist, duration, track.album) }
+            .onFailure { providerFailure = it as? Exception }.getOrNull()
+        if (!kugou.isNullOrBlank()) return@withContext cache(key, kugou)
 
         // /get gives the most precise match, but LRCLIB deliberately requires duration
         // to be within about two seconds. Search below recovers from container/intro offsets.
@@ -277,20 +284,27 @@ internal object LyricsRepository {
         val data = root.optJSONArray("data") ?: return@withContext null
         val candidates = (0 until data.length()).mapNotNull { index ->
             val hit = runCatching { data.getJSONObject(index) }.getOrNull() ?: return@mapNotNull null
+            // SimpMusic is keyed by the exact video ID; its documented payload
+            // contains duration + richSyncLyrics/syncedLyrics/plainLyrics (no
+            // per-result title or artist). Do not reject that valid response for
+            // missing metadata, which previously made regional tracks look empty.
             val candidateTitle = hit.optString("songTitle").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
             val candidateArtist = hit.optString("artistName").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
-            val rawLyrics = listOf("syncedLyrics", "plainLyric", "plainLyrics", "richSyncLyrics", "lyrics")
-                .firstNotNullOfOrNull { key -> hit.optString(key).takeIf { it.isNotBlank() && it != "null" } }
-                ?: return@mapNotNull null
+            val rich = hit.optString("richSyncLyrics").cleanLyrics()?.let(::decodeHtmlEntities)
+                ?.replace(Regex("<\\d{1,3}:\\d{2}[.:]\\d{2,3}>"), "")
+            val synced = hit.optString("syncedLyrics").cleanLyrics()
+            val plain = hit.optString("plainLyrics").cleanLyrics() ?: hit.optString("plainLyric").cleanLyrics()
+            val rawLyrics = rich ?: synced ?: plain ?: hit.optString("lyrics").cleanLyrics() ?: return@mapNotNull null
             val lyrics = when {
                 rawLyrics.contains("<tt", true) -> ttmlToLrc(rawLyrics)
                 parseLyrics(rawLyrics).isNotEmpty() -> rawLyrics
-                else -> null
+                rawLyrics.contains("<") && rawLyrics.contains("]") -> decodeRichSync(rawLyrics)
+                else -> rawLyrics.takeIf { it.isNotBlank() }
             }?.takeIf(String::isNotBlank) ?: return@mapNotNull null
             val seconds = hit.optDouble("durationSeconds", hit.optDouble("duration", 0.0)).takeIf { it.isFinite() && it > 0 } ?: 0.0
             val record = Record(hit.optString("id").toLongOrNull() ?: index.toLong(), candidateTitle, candidateArtist, seconds, false, lyrics, lyrics)
-            val titleScore = tokenScore(tokens(title), tokens(candidateTitle))
-            val artistScore = if (knownArtist(artist)) tokenScore(tokens(artist), tokens(candidateArtist)) else 0.0
+            val titleScore = if (candidateTitle.isBlank()) 1.0 else tokenScore(tokens(title), tokens(candidateTitle))
+            val artistScore = if (!knownArtist(artist) || candidateArtist.isBlank()) 0.0 else tokenScore(tokens(artist), tokens(candidateArtist))
             val delta = if (duration != null && seconds > 0) kotlin.math.abs(seconds - duration) else Double.POSITIVE_INFINITY
             // The API is keyed by this exact YouTube video ID; metadata scoring only
             // chooses between lyric variants returned for that video.
@@ -298,8 +312,71 @@ internal object LyricsRepository {
         }.sortedByDescending { it.second }
         val best = candidates.firstOrNull() ?: return@withContext null
         if (best.first.title.isNotBlank() && tokens(best.first.title).isNotEmpty() && best.second < .25) return@withContext null
-        if (candidates.getOrNull(1)?.let { best.second - it.second < .04 } == true) return@withContext null
+        if (best.first.title.isNotBlank() && candidates.getOrNull(1)?.let { best.second - it.second < .04 } == true) return@withContext null
         best.first.lyrics
+    }
+
+    private fun decodeRichSync(raw: String): String? = runCatching {
+        val decoded = runCatching { String(Base64.getDecoder().decode(raw), Charsets.UTF_8) }.getOrDefault(raw)
+        decodeHtmlEntities(decoded).replace("\\\\n", "\n").replace("\\n", "\n")
+            .takeIf { it.isNotBlank() }
+    }.getOrNull()
+
+    private fun decodeHtmlEntities(value: String): String = value
+        .replace(Regex("&#x([0-9a-fA-F]+);")) { it.groupValues[1].toInt(16).toChar().toString() }
+        .replace(Regex("&#(\\d+);")) { it.groupValues[1].toInt().toChar().toString() }
+        .replace("&amp;", "&").replace("&lt;", "<").replace("&gt;", ">")
+        .replace("&quot;", "\"").replace("&#39;", "'").replace("&apos;", "'")
+
+    private suspend fun findKuGouLyrics(title: String, artist: String, duration: Long?, album: String): String? = withContext(Dispatchers.IO) {
+        val keyword = buildString {
+            append(title.replace(Regex("[（(].*?[）)]"), "").trim())
+            if (knownArtist(artist)) append(" - ").append(artist)
+            if (album.isNotBlank() && !album.equals("Unknown album", true)) append(' ').append(album)
+        }
+        val seconds = duration?.toInt() ?: -1
+        val songResponse = request("https://mobileservice.kugou.com/api/v3/search/song", linkedMapOf(
+            "version" to "9108", "plat" to "0", "pagesize" to "8", "showtype" to "0", "keyword" to keyword
+        ))
+        if (songResponse.first !in 200..299) return@withContext null
+        val songHits = runCatching { JSONObject(songResponse.second).optJSONObject("data")?.optJSONArray("info") }.getOrNull()
+        val hashes = (0 until (songHits?.length() ?: 0)).mapNotNull { index ->
+            val item = songHits?.optJSONObject(index) ?: return@mapNotNull null
+            val hash = item.optString("hash").takeIf(String::isNotBlank) ?: return@mapNotNull null
+            val songDuration = item.optInt("duration", -1)
+            if (seconds > 0 && songDuration > 0 && kotlin.math.abs(songDuration - seconds) > 35) null else hash
+        }
+
+        fun lyricCandidates(params: Map<String, String>): List<JSONObject> {
+            val response = request("https://lyrics.kugou.com/search", params + mapOf("ver" to "1", "man" to "yes", "client" to "pc"))
+            if (response.first !in 200..299) return emptyList()
+            val root = runCatching { JSONObject(response.second) }.getOrNull() ?: return emptyList()
+            val array = root.optJSONArray("candidates") ?: return emptyList()
+            return (0 until array.length()).mapNotNull(array::optJSONObject)
+        }
+        val candidates = hashes.firstOrNull()?.let { hash -> lyricCandidates(mapOf("hash" to hash)).takeIf { it.isNotEmpty() } }
+            ?: lyricCandidates(buildMap {
+                put("keyword", keyword)
+                if (seconds > 0) put("duration", (seconds * 1000).toString())
+            })
+        val selected = candidates.mapNotNull { candidate ->
+            val song = candidate.optString("song")
+            val candidateArtist = candidate.optString("artist")
+            val titleScore = tokenScore(tokens(title), tokens(song))
+            val artistScore = if (knownArtist(artist)) tokenScore(tokens(artist), tokens(candidateArtist)) else 0.0
+            val score = if (knownArtist(artist)) titleScore * .65 + artistScore * .35 else titleScore
+            if (score < if (knownArtist(artist)) .55 else .82) null else candidate to score
+        }.maxByOrNull { it.second }?.first ?: return@withContext null
+        val id = selected.optString("id").takeIf(String::isNotBlank) ?: return@withContext null
+        val accessKey = selected.optString("accesskey").takeIf(String::isNotBlank) ?: return@withContext null
+        val downloaded = request("https://lyrics.kugou.com/download", mapOf(
+            "fmt" to "lrc", "charset" to "utf8", "client" to "pc", "ver" to "1", "id" to id, "accesskey" to accessKey
+        ))
+        if (downloaded.first !in 200..299 || downloaded.second.length > MAX_PROVIDER_BODY) return@withContext null
+        val encoded = runCatching { JSONObject(downloaded.second).optString("content") }.getOrNull().orEmpty()
+        val lrc = runCatching { String(Base64.getDecoder().decode(encoded), Charsets.UTF_8) }.getOrNull().orEmpty()
+        val timed = lrc.lineSequence().filter { Regex("\\[\\d{2}:\\d{2}\\.\\d{2,3}].*").matches(it) }.toList()
+        timed.joinToString("\n").takeIf { parseLyrics(it).isNotEmpty() }
     }
 
     private suspend fun findBiniLyrics(title: String, artist: String, duration: Long?, album: String): String? = withContext(Dispatchers.IO) {
@@ -437,8 +514,8 @@ internal object LyricsRepository {
         val requestUrl = endpoint + if (query.isEmpty()) "" else "?$query"
         val connection = (URL(requestUrl).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
-            connectTimeout = 6_000
-            readTimeout = 8_000
+            connectTimeout = 4_000
+            readTimeout = 5_000
             setRequestProperty("Accept", "application/json, application/ttml+xml, application/xml, text/plain;q=0.9, */*;q=0.5")
             setRequestProperty("User-Agent", "Hertix-Android/${BuildConfig.VERSION_NAME} (https://github.com/ravindran-dev/Hertix)")
         }

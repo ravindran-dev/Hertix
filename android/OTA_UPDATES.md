@@ -8,7 +8,14 @@ Hertix checks the latest stable release in the existing `ravindran-dev/Hertix` r
 2. Keep the existing Android application ID `dev.ravindran.ythub.mobile` and the signing certificate used by installed releases. This lets Android apply the update in place and preserve account/session data.
 3. Keep these GitHub Actions secrets configured: `YTHUB_RELEASE_KEYSTORE_BASE64`, `YTHUB_RELEASE_STORE_PASSWORD`, `YTHUB_RELEASE_KEY_ALIAS`, and `YTHUB_RELEASE_KEY_PASSWORD`.
 4. Also configure the public client settings `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. The release workflow fails before building if either is absent; without them, account and cloud-sync functionality is compiled out of the application configuration.
-5. Push a tag matching the version, such as `v1.0.14`. `.github/workflows/android-release.yml` builds and publishes a Hertix-named APK asset. The in-app checker reads the stable release API and selects the APK asset.
+5. Push a tag matching the version, such as `v1.0.15`. `.github/workflows/android-release.yml` builds and publishes a Hertix-named APK asset. The in-app checker reads the stable release API and selects the APK asset.
+
+## v1.0.15
+
+- YouTube Music discovery now uses the WEB_REMIX/Innertube search endpoint directly, following the BitChord search architecture. It does not use the Google YouTube Data API quota bucket.
+- Regional-language search uses the device locale and region.
+- Lyrics matching now accepts SimpMusic's documented video-ID response fields, including rich synchronized and plain lyrics that omit title/artist metadata.
+- The update notice now uses a compact frosted card, readable release notes, and stacked download/remind actions inspired by BitChord's open-source update dialog.
 
 The account session stays in the package's `noBackupFilesDir`, encrypted with the Android Keystore alias `ythub-account-v1`. Both names intentionally remain unchanged across the Hertix rebrand. Do not change the application ID, session filename or key alias without an explicit account-data migration. Existing user files are not moved; new Android exports go to `Downloads/Hertix`, while existing `Downloads/YTHub` files remain accessible.
 
