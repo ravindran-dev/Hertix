@@ -312,7 +312,7 @@ private val Accent = Color(0xFFFF173D)
         }
         lookupState = "loading"
         lookupError = ""
-        runCatching { LyricsRepository.find(track) }
+        runCatching { LyricsRepository.find(track, forceLookup = lookupAttempt > 0) }
             .onSuccess { found ->
                 if (found.isNullOrBlank()) lookupState = "missing"
                 else {
@@ -330,7 +330,7 @@ private val Accent = Color(0xFFFF173D)
             LinearProgressIndicator(Modifier.fillMaxWidth())
             Text("Searching LRCLIB for a matching track…", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
         } else if (lyrics.isBlank() && lookupState == "missing") {
-            MusicEmpty("No lyrics found", "LRCLIB has no matching lyrics for this title, artist and duration.")
+            MusicEmpty("No confident match yet", "We searched by song details and checked alternate title matches. You can retry or import a lyrics file.")
             TextButton(onClick = { lookupAttempt++ }) { Text("Search again") }
         } else if (lyrics.isBlank() && lookupState == "error") {
             Text(lookupError, Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
