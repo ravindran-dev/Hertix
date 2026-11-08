@@ -35,7 +35,7 @@ internal val LocalPageScroll = staticCompositionLocalOf<PageScrollState?> { null
     val scroll = LocalPageScroll.current
     Box(modifier.height(48.dp).clipToBounds(), contentAlignment = Alignment.CenterStart) {
         Row(Modifier.graphicsLayer { translationY = -(scroll?.pixels ?: 0f) }.testTag("scrolling-header-title"), verticalAlignment = Alignment.CenterVertically) {
-            if (brand) Image(painterResource(R.drawable.hertix_wordmark), "Hertix", Modifier.width(126.dp).height(42.dp))
+            if (brand) Image(painterResource(R.drawable.hertix_wordmark), "Hertix", Modifier.width(145.dp).height(48.dp))
             else Text(title, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }

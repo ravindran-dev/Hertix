@@ -28,13 +28,20 @@ internal object YouTubeInnertubeLyrics {
                 .put("isAudioOnly", true))
         }.getOrNull() ?: return@withContext null
 
+        // YouTube localizes tab titles (e.g. Tamil "பாடல் வரி"), so identify
+        // the lyrics page by its stable page type / MPLY browse ID instead.
         val endpoint = findObjects(next, "tabRenderer").firstNotNullOfOrNull { tab ->
+            val browse = findObjects(tab.opt("endpoint"), "browseEndpoint").firstOrNull()
+                ?: return@firstNotNullOfOrNull null
+            val browseId = browse.optString("browseId")
+            val pageType = findString(tab, "pageType")
             val title = jsonText(tab.opt("title")).trim()
-            if (!title.equals("Lyrics", ignoreCase = true)) null
-            else findObjects(tab.opt("endpoint"), "browseEndpoint").firstOrNull()
-        } ?: findObjects(next, "tabRenderer").drop(1)
-            .firstNotNullOfOrNull { findObjects(it.opt("endpoint"), "browseEndpoint").firstOrNull() }
-            ?: return@withContext null
+            browse.takeIf {
+                pageType == "MUSIC_PAGE_TYPE_TRACK_LYRICS" ||
+                    browseId.startsWith("MPLY") ||
+                    title.equals("Lyrics", ignoreCase = true)
+            }
+        } ?: return@withContext null
         val browseId = endpoint.optString("browseId").takeIf(String::isNotBlank) ?: return@withContext null
         val request = JSONObject().put("browseId", browseId)
         endpoint.optString("params").takeIf(String::isNotBlank)?.let { request.put("params", it) }
@@ -134,6 +141,18 @@ internal object YouTubeInnertubeLyrics {
             }
         }
         visit(root)
+    }
+
+    private fun findString(root: Any?, key: String): String? {
+        when (root) {
+            is JSONObject -> {
+                root.optString(key).takeIf { it.isNotBlank() && it != "null" }?.let { return it }
+                val keys = root.keys()
+                while (keys.hasNext()) findString(root.opt(keys.next()), key)?.let { return it }
+            }
+            is JSONArray -> for (index in 0 until root.length()) findString(root.opt(index), key)?.let { return it }
+        }
+        return null
     }
 
     private fun jsonText(value: Any?): String = when (value) {

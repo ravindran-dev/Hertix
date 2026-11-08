@@ -122,7 +122,12 @@ object DownloadStore {
     }
     private fun request(url: String, options: Preferences): YoutubeDLRequest {
         val request = YoutubeDLRequest(url).addOption("--ignore-config")
-            .addOption("--socket-timeout", 30).addOption("--retries", options.retries)
+            .addOption("--socket-timeout", 30)
+            .addOption("--retries", options.retries.coerceAtLeast(5))
+            .addOption("--fragment-retries", 10)
+            .addOption("--extractor-retries", 5)
+            .addOption("--file-access-retries", 5)
+            .addOption("--retry-sleep", "fragment:exp=1:20")
         if (options.proxy.isNotBlank()) request.addOption("--proxy", options.proxy)
         if (options.cookiesPath.isNotBlank()) request.addOption("--cookies", options.cookiesPath)
         return request
@@ -330,7 +335,11 @@ object DownloadStore {
                 val prefix = if (item.media.playlist && item.options.preserveOrder) "%03d - ".format(index + 1) else ""
                 val request = request(media.url, item.options).addOption("--no-playlist").addOption("--newline")
                     .addOption("--continue").addOption("--no-mtime").addOption("--restrict-filenames")
-                    .addOption("--concurrent-fragments", 2).addOption("-o", File(directory, "$prefix%(title).120B [%(id)s].%(ext)s").absolutePath)
+                    // Parallel fragment fetching improves adaptive-stream downloads; HTTP chunks
+                    // help providers that throttle long single-stream responses. yt-dlp safely
+                    // falls back for extractors that do not support either transport strategy.
+                    .addOption("--concurrent-fragments", 4).addOption("--http-chunk-size", "10M")
+                    .addOption("-o", File(directory, "$prefix%(title).120B [%(id)s].%(ext)s").absolutePath)
                 if (item.audio) {
                     request.addOption("-f", "bestaudio/best").addOption("--extract-audio").addOption("--audio-format", "mp3")
                         .addOption("--audio-quality", if (item.quality == "best") "0" else "${item.quality}K")

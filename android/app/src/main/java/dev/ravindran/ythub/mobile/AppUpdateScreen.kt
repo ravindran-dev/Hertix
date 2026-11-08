@@ -1,6 +1,7 @@
 package dev.ravindran.ythub.mobile
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.background
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -64,43 +65,44 @@ internal fun AppUpdateCheckerScreen() {
 internal fun AppUpdateAvailableDialog(release: YTHubRelease, onRemindLater: () -> Unit) {
     val height = LocalConfiguration.current.screenHeightDp.dp
     val width = LocalConfiguration.current.screenWidthDp.dp
-    val notes = remember(release.notes) { readableReleaseNotes(release.notes) }
+    val notes = remember(release.notes, release.versionName) { readableReleaseNotes(release.notes, release.versionName) }
     val hasNotes = notes != "Release notes are not available."
     Dialog(onDismissRequest = onRemindLater, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        GlassWindowBlur()
-        val panelMaxHeight = (height * .82f).coerceAtMost(680.dp)
+        Box(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .28f)), contentAlignment = Alignment.Center) {
+        val panelMaxHeight = (height * .82f).coerceAtMost(640.dp)
         LiquidGlassPanel(
-            Modifier.width(minOf(width - 48.dp, 400.dp)).heightIn(min = 300.dp, max = panelMaxHeight).clip(RoundedCornerShape(30.dp)),
+            Modifier.width(minOf(width - 40.dp, 310.dp)).heightIn(max = panelMaxHeight).clip(RoundedCornerShape(22.dp)),
             backdrop = LocalGlassScene.current?.layer ?: LocalAtmosphereLayer.current,
             contentOrigin = LocalGlassScene.current?.origin ?: Offset.Zero,
-            radius = 34.dp,
-            tintAlpha = .18f,
+            radius = 24.dp,
+            tintAlpha = .32f,
             animateOnTouch = false
         ) {
-            Column(Modifier.fillMaxWidth().heightIn(max = panelMaxHeight).padding(horizontal = 20.dp, vertical = 18.dp)) {
+            Column(Modifier.fillMaxWidth().heightIn(max = panelMaxHeight).padding(horizontal = 18.dp, vertical = 15.dp)) {
                 Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text("Software Update", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                    Text("Hertix ${release.versionName} is available to download.", Modifier.padding(top = 7.dp), style = MaterialTheme.typography.bodyLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text("Software Update", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                    Text("Hertix ${release.versionName} is available to download.", Modifier.padding(top = 7.dp), style = MaterialTheme.typography.bodyMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 }
-                HorizontalDivider(Modifier.padding(top = 18.dp, bottom = 14.dp), color = Color.White.copy(alpha = .18f))
-                Text("What’s new", Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (hasNotes) Column(Modifier.fillMaxWidth().heightIn(max = 190.dp).verticalScroll(rememberScrollState()).padding(top = 10.dp, bottom = 12.dp)) {
-                    Text(notes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                HorizontalDivider(Modifier.padding(top = 14.dp, bottom = 11.dp), color = Color.White.copy(alpha = .18f))
+                Text("What’s new", Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (hasNotes) Column(Modifier.fillMaxWidth().heightIn(max = minOf(height * .28f, 220.dp)).verticalScroll(rememberScrollState()).padding(top = 8.dp, bottom = 10.dp)) {
+                    Text(notes, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurface)
                 } else Box(Modifier.fillMaxWidth().padding(bottom = 6.dp), contentAlignment = Alignment.TopStart) {
-                    Text(notes, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(notes, Modifier.padding(top = 10.dp), style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 HorizontalDivider(color = Color.White.copy(alpha = .18f))
                 UpdateReleaseActions(release, showNotes = false)
                 HorizontalDivider(color = Color.White.copy(alpha = .14f))
-                TextButton(onClick = onRemindLater, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp)) {
-                    Text("Remind Me Later", style = MaterialTheme.typography.titleMedium)
+                TextButton(onClick = onRemindLater, modifier = Modifier.fillMaxWidth().height(44.dp), contentPadding = PaddingValues(0.dp)) {
+                    Text("Remind Me Later", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
                 }
             }
+        }
         }
     }
 }
 
-private fun readableReleaseNotes(raw: String): String {
+private fun readableReleaseNotes(raw: String, versionName: String): String {
     val lines = raw.lineSequence()
         .filterNot { it.contains("full changelog", ignoreCase = true) || it.trim().startsWith("https://github.com/", ignoreCase = true) }
         .map { line ->
@@ -110,8 +112,9 @@ private fun readableReleaseNotes(raw: String): String {
                 .replace(Regex("(?m)^[-*]\\s+"), "• ")
         }
         .filter(String::isNotBlank)
+        .filterNot { it.trim().removePrefix("•").trim().equals("Hertix $versionName", ignoreCase = true) }
         .toList()
-    return lines.joinToString("\n\n").ifBlank { "Release notes are not available." }
+    return lines.joinToString("\n").ifBlank { "Release notes are not available." }
 }
 
 @Composable
@@ -127,7 +130,7 @@ private fun UpdateReleaseActions(release: YTHubRelease, showNotes: Boolean = tru
         if (showNotes && release.notes.isNotBlank()) Text(release.notes, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (message.isNotBlank()) Text(message, style = MaterialTheme.typography.bodySmall, color = if (failed) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
         if (downloading) LinearProgressIndicator(progress = { progress }, modifier = Modifier.fillMaxWidth())
-        Button(enabled = !downloading, onClick = {
+        val action: () -> Unit = {
             scope.launch {
                 failed = false
                 if (apk == null) {
@@ -143,6 +146,11 @@ private fun UpdateReleaseActions(release: YTHubRelease, showNotes: Boolean = tru
                         .onFailure { message = it.message ?: "Could not open Android's installer."; failed = true }
                 }
             }
-        }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(if (apk == null) "Download Now" else "Install Update") }
+        }
+        if (!showNotes) TextButton(enabled = !downloading, onClick = action, modifier = Modifier.fillMaxWidth().height(44.dp), contentPadding = PaddingValues(0.dp)) {
+            Text(if (downloading) "Downloading…" else if (apk == null) "Download Now" else "Install Update", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurface)
+        } else Button(enabled = !downloading, onClick = action, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
+            Text(if (downloading) "Downloading…" else if (apk == null) "Download Now" else "Install Update")
+        }
     }
 }

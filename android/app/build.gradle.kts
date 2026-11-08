@@ -15,8 +15,8 @@ android {
             buildConfigField("String", key, "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\"")
         }
         // Keep versionCode monotonic from semantic versions: major*1,000,000 + minor*1,000 + patch.
-        versionCode = 1_000_017
-        versionName = "1.0.17"
+        versionCode = 1_000_018
+        versionName = "1.0.18"
         ndk { abiFilters += listOf("arm64-v8a", "x86_64") }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }

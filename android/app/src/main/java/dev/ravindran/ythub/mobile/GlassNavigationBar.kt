@@ -268,10 +268,12 @@ internal fun PairedGlassActions(onAdd: () -> Unit, onMore: () -> Unit, addLabel:
         backdrop = backdrop ?: scene?.layer,
         contentOrigin = if (backdrop == null) scene?.origin ?: contentOrigin else contentOrigin) {
         // Aligned header actions share a single glass capsule and consistent touch targets.
-        Row(Modifier.padding(horizontal = 3.dp), verticalAlignment = Alignment.CenterVertically) {
+        Row(Modifier.padding(horizontal = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             LocalAccountAction.current?.let { account ->
                 AccountAvatar(account, Modifier.testTag("account-avatar"), size = 40.dp)
+                Spacer(Modifier.width(8.dp))
                 Box(Modifier.width(.5.dp).height(20.dp).align(Alignment.CenterVertically).background(Color.White.copy(alpha=.10f)))
+                Spacer(Modifier.width(8.dp))
             }
             GlassIconButton(Icons.Rounded.MoreHoriz, moreLabel, onMore, glyph = 22.dp)
         }

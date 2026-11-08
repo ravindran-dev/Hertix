@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
@@ -194,7 +195,9 @@ private val Accent = MobileUi.accent
     }
     if (options) {
         val popupWidth = (LocalConfiguration.current.screenWidthDp - 48).coerceAtLeast(260).dp
-        GlassActionPopover("PLAYER OPTIONS", onDismiss = { options = false }, panelWidth = popupWidth) {
+        val playerGlass = LocalGlassScene.current
+        GlassActionPopover("PLAYER OPTIONS", onDismiss = { options = false }, backdrop = playerGlass?.layer,
+            contentOrigin = playerGlass?.origin ?: Offset.Zero, panelWidth = popupWidth) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 TrackArtwork(track, Modifier.size(44.dp).clip(RoundedCornerShape(10.dp)))
                 Column(Modifier.weight(1f)) {
@@ -295,6 +298,12 @@ private val Accent = MobileUi.accent
     val savedLyrics = library.tracks.firstOrNull { it.id == track.id }?.lyrics.orEmpty()
     val lyrics = savedLyrics.ifBlank { track.lyrics }
     val lines = remember(lyrics) { parseLyrics(lyrics) }
+    val tamilLyrics = remember(lyrics) { Tanglish.isTamil(lyrics) }
+    var tanglish by remember(track.id) { mutableStateOf(true) }
+    val displayedLyrics = remember(lyrics, tamilLyrics, tanglish) { if (tamilLyrics && tanglish) Tanglish.convert(lyrics) else lyrics }
+    val displayedLines = remember(lines, tamilLyrics, tanglish) {
+        if (tamilLyrics && tanglish) lines.map { it.copy(text = Tanglish.convert(it.text)) } else lines
+    }
     val list = rememberLazyListState()
     var auto by remember { mutableStateOf(true) }
     var lookupAttempt by remember(track.id) { mutableIntStateOf(0) }
@@ -332,9 +341,15 @@ private val Accent = MobileUi.accent
                 Text(track.artist, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
-        if (lines.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = { auto = !auto }) { Text(if (auto) "Auto-scroll on" else "Auto-scroll off") }
-            TextButton(onClick = { auto = true; scope.launch { if (active >= 0) list.animateScrollToItem(active) } }) { Text("Current line") }
+        if (lines.isNotEmpty() || tamilLyrics) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            if (tamilLyrics) TextButton(onClick = { tanglish = !tanglish }, contentPadding = PaddingValues(horizontal = 6.dp)) {
+                Text(if (tanglish) "Tanglish" else "தமிழ்", maxLines = 1, style = MaterialTheme.typography.labelMedium)
+            }
+            Spacer(Modifier.weight(1f))
+            if (lines.isNotEmpty()) {
+                TextButton(onClick = { auto = !auto }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text(if (auto) "Auto-scroll on" else "Auto-scroll off", maxLines = 1, style = MaterialTheme.typography.labelMedium) }
+                TextButton(onClick = { auto = true; scope.launch { if (active >= 0) list.animateScrollToItem(active) } }, contentPadding = PaddingValues(horizontal = 6.dp)) { Text("Current line", maxLines = 1, style = MaterialTheme.typography.labelMedium) }
+            }
         }
         if (lyrics.isBlank() && lookupState == "loading") {
             GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), tintAlpha = .18f) {
@@ -360,10 +375,10 @@ private val Accent = MobileUi.accent
                 }
             }
         } else if (lines.isEmpty()) {
-            Text(lyrics, Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(vertical = 12.dp), style = MaterialTheme.typography.titleMedium)
+            Text(displayedLyrics, Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(vertical = 12.dp), style = MaterialTheme.typography.titleMedium)
         } else {
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 440.dp), state = list, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                itemsIndexed(lines) { i, line ->
+                itemsIndexed(displayedLines) { i, line ->
                     Text(line.text, color = if (i == active) Accent else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.fillMaxWidth().clickable { MusicPlayback.seek(line.timeMs) }.padding(vertical = 6.dp))
                 }
