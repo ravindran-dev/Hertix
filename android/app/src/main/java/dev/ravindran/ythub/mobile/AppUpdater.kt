@@ -9,9 +9,12 @@ import android.content.pm.PackageManager
 import androidx.core.content.FileProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import org.json.JSONObject
 import java.io.File
+import java.io.FileOutputStream
+import java.io.IOException
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -56,7 +59,8 @@ internal object AppUpdater {
             }
             check(apk != null) { "This Hertix release does not include an APK." }
             if (latestCode <= BuildConfig.VERSION_CODE) return@withContext AppUpdateStatus.UpToDate
-            AppUpdateStatus.Available(YTHubRelease(tag, latestCode, release.optString("body").take(12_000), apk.getString("browser_download_url")))
+            val assetUrl = apk.optString("url").ifBlank { apk.getString("browser_download_url") }
+            AppUpdateStatus.Available(YTHubRelease(tag, latestCode, release.optString("body").take(12_000), assetUrl))
         } finally {
             connection.disconnect()
         }
@@ -66,48 +70,86 @@ internal object AppUpdater {
         val directory = File(context.filesDir, "updates").apply { mkdirs() }
         val destination = File(directory, "Hertix-${release.versionName}.apk")
         val temporary = File(directory, "${destination.name}.part")
-        val connection = (URL(release.apkUrl).openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 15_000
-            readTimeout = 30_000
-            instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "Hertix-Android-Updater")
-        }
-        try {
-            check(connection.responseCode == HttpURLConnection.HTTP_OK) { "APK download failed (${connection.responseCode})." }
-            val total = connection.contentLengthLong
-            check(total == -1L || total in 1..(1L shl 30)) { "The release APK size is invalid or exceeds 1 GB." }
-            connection.inputStream.use { input ->
-                temporary.outputStream().buffered().use { output ->
-                    val buffer = ByteArray(64 * 1024)
-                    var read: Int
-                    var count = 0L
-                    var notifiedProgress = 0f
-                    while (input.read(buffer).also { read = it } >= 0) {
-                        if (read == 0) continue
-                        output.write(buffer, 0, read)
-                        count += read
-                        check(count <= (1L shl 30)) { "The release APK exceeds 1 GB." }
-                        if (total > 0) {
-                            val progress = (count.toFloat() / total).coerceIn(0f, 1f)
-                            if (progress >= 1f || progress - notifiedProgress >= .01f) {
-                                notifiedProgress = progress
-                                withContext(Dispatchers.Main.immediate) { onProgress(progress) }
+        var lastError: Throwable? = null
+        repeat(4) { attempt ->
+            val offset = temporary.length()
+            val connection = (URL(release.apkUrl).openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 15_000
+                readTimeout = 45_000
+                instanceFollowRedirects = true
+                setRequestProperty("Accept", "application/octet-stream")
+                setRequestProperty("User-Agent", "Hertix-Android-Updater")
+                if (offset > 0L) setRequestProperty("Range", "bytes=$offset-")
+            }
+            try {
+                val status = connection.responseCode
+                if (status == 408 || status == 429 || status in 500..599) {
+                    val detail = if (status == 504) "GitHub timed out (504)" else "Update server returned $status"
+                    throw RetryableUpdateException("$detail. Retrying the download…")
+                }
+                check(status == HttpURLConnection.HTTP_OK || status == HttpURLConnection.HTTP_PARTIAL) {
+                    "APK download failed ($status)."
+                }
+
+                // A server may ignore Range and return the whole file. Restart the temporary file
+                // in that case instead of appending duplicate bytes.
+                val resume = status == HttpURLConnection.HTTP_PARTIAL && offset > 0L
+                val contentRange = connection.getHeaderField("Content-Range")
+                if (resume && contentRange?.startsWith("bytes $offset-") != true) {
+                    temporary.delete()
+                    throw RetryableUpdateException("The update server returned an invalid resume range. Retrying…")
+                }
+                val total = if (status == HttpURLConnection.HTTP_PARTIAL) {
+                    contentRange?.substringAfterLast('/')?.toLongOrNull() ?: -1L
+                } else connection.contentLengthLong
+                check(total == -1L || total in 1..(1L shl 30)) { "The release APK size is invalid or exceeds 1 GB." }
+                if (!resume && offset > 0L) temporary.delete()
+
+                connection.inputStream.use { input ->
+                    FileOutputStream(temporary, resume).buffered(128 * 1024).use { output ->
+                        val buffer = ByteArray(128 * 1024)
+                        var count = if (resume) offset else 0L
+                        var notifiedProgress = -1f
+                        while (true) {
+                            val read = input.read(buffer)
+                            if (read < 0) break
+                            if (read == 0) continue
+                            output.write(buffer, 0, read)
+                            count += read
+                            check(count <= (1L shl 30)) { "The release APK exceeds 1 GB." }
+                            if (total > 0) {
+                                val progress = (count.toFloat() / total).coerceIn(0f, 1f)
+                                if (progress >= 1f || progress - notifiedProgress >= .01f) {
+                                    notifiedProgress = progress
+                                    withContext(Dispatchers.Main.immediate) { onProgress(progress) }
+                                }
                             }
                         }
                     }
                 }
+                check(temporary.length() > 0L && (total <= 0L || temporary.length() == total)) {
+                    "APK download was incomplete. Retry to continue from the saved progress."
+                }
+                check(temporary.renameTo(destination)) { "Could not save the update APK." }
+                return@withContext destination
+            } catch (error: Throwable) {
+                lastError = error
+                if (error is CancellationException) throw error
+                val retryable = error is IOException || error is RetryableUpdateException
+                if (!retryable || attempt == 3) {
+                    if (!retryable) temporary.delete()
+                    throw error
+                }
+                delay(750L shl attempt)
+            } finally {
+                connection.disconnect()
             }
-            check(temporary.length() > 0L && (total <= 0L || temporary.length() == total)) { "APK download was incomplete. Try again." }
-            check(temporary.renameTo(destination)) { "Could not save the update APK." }
-            destination
-        } catch (error: Throwable) {
-            temporary.delete()
-            throw error
-        } finally {
-            connection.disconnect()
         }
+        throw lastError ?: IOException("APK download failed. Try again.")
     }
+
+    private class RetryableUpdateException(message: String) : IOException(message)
 
     fun launchInstaller(context: Context, apk: File): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !context.packageManager.canRequestPackageInstalls()) {
