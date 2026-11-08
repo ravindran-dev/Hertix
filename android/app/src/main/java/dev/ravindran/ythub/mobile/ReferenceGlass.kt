@@ -28,7 +28,7 @@ private class RecordedGlassBackdrop(val layer: GraphicsLayer, val origin: () -> 
     }
 }
 
-/** Material settings from BitChord's LiquidGlass.kt (GPL-3.0), backed by Kyant0/backdrop. */
+/** Shared glass material settings backed by Kyant0/backdrop. */
 @Composable
 internal fun Modifier.referenceGlass(shape: Shape, dark: Boolean, layer: GraphicsLayer?, origin: Offset, dock: DockGlassState?, tint: Float?): Modifier {
     if (Build.VERSION.SDK_INT < 31 || (layer == null && dock == null)) return this

@@ -10,7 +10,7 @@
 ## Player
 
 - A visible square album cover replaces the empty artwork slot. Existing same-album artwork can fill a missing track cover. Tracks without artwork keep the neutral placeholder; no unrelated artwork is downloaded or invented.
-- The BitChord-inspired layout has title/artist, favorite, seek, shuffle/previous/play/next/repeat, volume and Lyrics/Output/Queue. Timer and skip actions remain in track options. Colors follow light/dark themes.
+- The player layout has title/artist, favorite, seek, shuffle/previous/play/next/repeat, volume and Lyrics/Output/Queue. Timer and skip actions remain in track options. Colors follow light/dark themes.
 - The mini-player uses a 36 dp rounded cover, 12 dp leading inset and explicit clipping, inside the existing capsule. Previous/play/next remain available.
 
 ## Validation

@@ -64,7 +64,7 @@ internal object LyricsRepository {
             .onFailure { providerFailure = it as? Exception }.getOrNull()
         if (!videoLyrics.isNullOrBlank()) return@withContext cache(key, videoLyrics)
 
-        // BitChord's YouTube Music lyrics tab is keyed by the exact playing
+        // YouTube Music's lyrics tab is keyed by the exact playing
         // video and can return regional lyrics absent from title catalogs.
         val videoUrl = track.downloadId?.let { id ->
             DownloadStore.items.value.firstOrNull { it.id == id }?.media?.url
@@ -128,7 +128,7 @@ internal object LyricsRepository {
             }
         }
 
-        // The provider chain mirrors BitChord's source-oriented lookup: use the local
+        // The source-oriented provider chain uses the local
         // lyrics database first, then independently hosted Apple Music TTML sources.
         // BiniLyrics is particularly useful for non-English catalogs, including Tamil.
         val bini = runCatching { findBiniLyrics(title, artist, duration, track.album) }
@@ -139,7 +139,7 @@ internal object LyricsRepository {
             .onFailure { providerFailure = it as? Exception }.getOrNull()
         if (!better.isNullOrBlank()) return@withContext cache(key, better)
 
-        // Captions are a final exact-video fallback, as in BitChord. They remain
+        // Captions are a final exact-video fallback. They remain
         // lower priority than lyrics catalogs to avoid replacing authored lyrics.
         if (videoUrl.isNotBlank()) {
             val transcript = runCatching { YouTubeInnertubeLyrics.transcript(videoUrl) }

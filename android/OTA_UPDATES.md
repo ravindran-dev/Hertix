@@ -21,12 +21,12 @@ Hertix checks the latest stable release in the existing `ravindran-dev/Hertix` r
 
 ## v1.0.17
 
-- YouTube Music discovery now uses the WEB_REMIX/Innertube search endpoint directly, following the BitChord search architecture. It does not use the Google YouTube Data API quota bucket.
+- YouTube Music discovery now uses the WEB_REMIX/Innertube search endpoint directly. It does not use the Google YouTube Data API quota bucket.
 - Regional-language search uses the device locale and region.
 - Lyrics matching now accepts SimpMusic's documented video-ID response fields, including rich synchronized and plain lyrics that omit title/artist metadata.
-- The update notice now uses a compact frosted card, readable release notes, and stacked download/remind actions inspired by BitChord's open-source update dialog.
+- The update notice now uses a compact frosted card, readable release notes, and stacked download/remind actions.
 - Regional LRC matching accounts for the singer field returned by KuGou, so results with the provider's field naming are not discarded.
-- YouTube Music lyrics-tab lookup and the exact-video transcript fallback now follow BitChord's Innertube lyrics flow, including regional-script lyrics returned for the video itself.
+- YouTube Music lyrics-tab lookup and the exact-video transcript fallback use Innertube, including regional-script lyrics returned for the video itself.
 - Replaced the Android launcher, splash and Hertix home wordmark assets with the newly supplied purple play H symbol and wordmark.
 
 The account session stays in the package's `noBackupFilesDir`, encrypted with the Android Keystore alias `ythub-account-v1`. Both names intentionally remain unchanged across the Hertix rebrand. Do not change the application ID, session filename or key alias without an explicit account-data migration. Existing user files are not moved; new Android exports go to `Downloads/Hertix`, while existing `Downloads/YTHub` files remain accessible.

@@ -11,8 +11,8 @@ import java.util.Base64
 import java.util.Locale
 
 /**
- * Exact-video YouTube Music lyrics and transcript lookups, following
- * BitChord's Innertube route. These endpoints often contain lyrics in
+ * Exact-video YouTube Music lyrics and transcript lookups through Innertube.
+ * These endpoints often contain lyrics in
  * languages not covered by title-indexed catalogs.
  */
 internal object YouTubeInnertubeLyrics {
@@ -51,7 +51,7 @@ internal object YouTubeInnertubeLyrics {
         }
     }
 
-    /** Last resort, matching BitChord's exact-video transcript provider. */
+    /** Last-resort exact-video transcript provider. */
     suspend fun transcript(videoUrl: String): String? = withContext(Dispatchers.IO) {
         val videoId = videoId(videoUrl) ?: return@withContext null
         val bytes = byteArrayOf(10, videoId.toByteArray(Charsets.UTF_8).size.toByte()) + videoId.toByteArray(Charsets.UTF_8)

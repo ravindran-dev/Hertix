@@ -12,7 +12,7 @@ import java.util.Locale
 
 internal data class YouTubeResult(val id: String, val type: String, val title: String, val channel: String, val thumbnail: String, val url: String)
 
-/** BitChord-style YouTube Music WEB_REMIX discovery; this path uses no Data API key/quota. */
+/** YouTube Music WEB_REMIX discovery; this path uses no Data API key/quota. */
 internal suspend fun searchYouTube(query: String, type: String = "all"): List<YouTubeResult> = withContext(Dispatchers.IO) {
     val cleanQuery = query.trim().replace(Regex("\\s+"), " ").take(100)
     require(cleanQuery.length >= 2) { "Enter at least 2 characters." }

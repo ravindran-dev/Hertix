@@ -182,7 +182,7 @@ internal fun FloatingPlaybackDock(destination: String, onExplore: () -> Unit, on
 @Composable
 private fun LibraryTabGlyph(tint: Color) {
     Canvas(Modifier.size(28.dp).semantics { contentDescription = "Library" }) {
-        scale(size.width / 512f, size.height / 512f, Offset.Zero) { drawPath(BitChordLibraryTabPath, tint) }
+        scale(size.width / 512f, size.height / 512f, Offset.Zero) { drawPath(HertixLibraryTabPath, tint) }
     }
 }
 

@@ -1,7 +1,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2';
 
-// Public YouTube Music Innertube search, following the WEB_REMIX client path
-// used by BitChord. This avoids spending the project's YouTube Data API quota.
+// Public YouTube Music Innertube search using the WEB_REMIX client path.
+// This avoids spending the project's YouTube Data API quota.
 // Innertube is an undocumented upstream protocol and may change independently.
 const cors = {
   'Access-Control-Allow-Origin': '*',
