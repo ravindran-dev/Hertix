@@ -2,7 +2,6 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import {
-  Music2,
   Play,
   Pause,
   SkipBack,
@@ -11,7 +10,6 @@ import {
   Repeat,
   Heart,
   Volume2,
-  ListMusic,
   X,
   Timer,
   AlignLeft,
@@ -49,10 +47,17 @@ export function Artwork({
         <img
           src={convertFileSrc(track.artwork)}
           alt="Album artwork"
-          onError={(e) => (e.currentTarget.style.display = "none")}
+          onError={(e) => {
+            if (e.currentTarget.dataset.fallback) e.currentTarget.style.display = "none";
+            else {
+              e.currentTarget.dataset.fallback = "true";
+              e.currentTarget.src = "/hertix-symbol.png";
+              e.currentTarget.classList.add("artwork-fallback");
+            }
+          }}
         />
       ) : (
-        <Music2 size={small ? 20 : 68} />
+        <img className="artwork-fallback" src="/hertix-symbol.png" alt="Hertix" />
       )}
       <span>{!small && (track?.album || "YOUR OFFLINE SOUNDTRACK")}</span>
     </div>
@@ -233,8 +238,16 @@ export function Player({ mini = false }: { mini?: boolean }) {
   const queueStart = Math.max(0, Math.floor(queueScroll / 60) - 3);
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => {
+    if (!s.overlay) return;
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") useMusic.setState({ overlay: false });
+    };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [s.overlay]);
   if (mini && !track) return null;
-  if (!mini && !s.panel && !s.overlay) return null;
+  if (!mini && !s.overlay) return null;
   const content = (
     <aside
       className={
@@ -248,19 +261,15 @@ export function Player({ mini = false }: { mini?: boolean }) {
         <div className="section-head">
           <span className="eyebrow">NOW PLAYING</span>
           <button
-            className="icon-button"
-            aria-label="Collapse Now Playing"
-            onClick={() => useMusic.setState({ panel: false, overlay: false })}
+            className="icon-button player-collapse"
+            aria-label="Minimize player"
+            onClick={() => useMusic.setState({ panel: true, overlay: false })}
           >
-            <X size={17} />
+            <ChevronDown size={19} />
           </button>
         </div>
       )}
-      <Artwork track={track} small={mini} />
-      <div className="playing-meta">
-        <strong>{track?.title || "A little quiet, for now."}</strong>
-        <p>{track?.artist || "Play a track from your library"}</p>
-      </div>
+      {mini ? <button className="mini-track-hit" onClick={togglePlayerPanel} aria-label="Open Now Playing"><Artwork track={track} small /><span className="playing-meta"><strong>{track?.title || "A little quiet, for now."}</strong><small>{track?.artist || "Play a track from your library"}</small></span></button> : <><Artwork track={track} /><div className="playing-meta"><strong>{track?.title || "A little quiet, for now."}</strong><p>{track?.artist || "Play a track from your library"}</p></div></>}
       {track && !mini && (
         <button
           className={`icon-button favorite-playing ${track.favorite ? "accent" : ""}`}
@@ -271,11 +280,11 @@ export function Player({ mini = false }: { mini?: boolean }) {
           <Heart size={21} fill={track.favorite ? "currentColor" : "none"} />
         </button>
       )}
-      <div className="player-center">
-        <Progress />
-        <Controls />
-      </div>
-      <label className="volume">
+      {mini ? <div className="mini-player-controls">
+        <button className="icon-button" aria-label={s.playing ? "Pause" : "Play"} title={s.playing ? "Pause" : "Play"} onClick={s.toggle}>{s.playing ? <Pause size={18} /> : <Play size={18} />}</button>
+        <button className="icon-button" aria-label="Next track" title="Next track" onClick={() => s.next()}><SkipForward size={19} /></button>
+      </div> : <div className="player-center"><Progress /><Controls /></div>}
+      {!mini && <label className="volume">
         <Volume2 size={17} />
         <input
           aria-label={mini ? "Mini player volume" : "Volume"}
@@ -286,16 +295,9 @@ export function Player({ mini = false }: { mini?: boolean }) {
           value={s.volume}
           onChange={(e) => useMusic.setState({ volume: +e.target.value })}
         />
-      </label>
+      </label>}
       {mini ? (
-        <button
-          className="icon-button"
-          title="Now Playing"
-          aria-label="Show Now Playing"
-          onClick={togglePlayerPanel}
-        >
-          <ListMusic size={20} />
-        </button>
+        null
       ) : (
         <>
           <div className="skip-controls">
@@ -482,7 +484,8 @@ export function Player({ mini = false }: { mini?: boolean }) {
       )}
     </aside>
   );
-  return mini ? createPortal(content, document.body) : content;
+  if (mini) return createPortal(content, document.body);
+  return createPortal(<div className="player-overlay"><button className="player-overlay-scrim" aria-label="Close player" onClick={() => useMusic.setState({ overlay: false })} />{content}</div>, document.body);
 }
 
 function Lyrics({ track }: { track?: Track }) {

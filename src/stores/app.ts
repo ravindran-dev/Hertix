@@ -19,6 +19,7 @@ export const useApp = create<State>((set) => ({
   setMetrics: (metrics) => set({ metrics }),
   page: ([
     "dashboard",
+    "explore",
     "search",
     "downloads",
     "library",

@@ -364,15 +364,13 @@ pub async fn search(
     if query.chars().count() < 2 || query.chars().count() > 100 {
         return Err("Enter a search between 2 and 100 characters.".into());
     }
+    if kind == "playlists" {
+        return music_playlist_search(s, &query).await;
+    }
     let search_query = match kind {
         "all" | "videos" => query,
         "songs" => format!("{query} official audio"),
         "artists" | "channels" => format!("{query} artist"),
-        "playlists" => {
-            return Err(
-                "Playlist search is not supported by the local YouTube search engine.".into(),
-            )
-        }
         _ => return Err("Unsupported search category.".into()),
     };
     let path = resolve(app, s, "yt-dlp")?;
@@ -434,6 +432,145 @@ pub async fn search(
         })
         .collect::<Vec<_>>();
     Ok(serde_json::json!({ "items": items, "nextPageToken": null }))
+}
+
+async fn music_playlist_search(s: &Settings, query: &str) -> Result<Value, String> {
+    const ENDPOINT: &str = "https://music.youtube.com/youtubei/v1/search?prettyPrint=false";
+    const PLAYLIST_FILTER: &str = "EgWKAQIoAWoKEAkQChAFEAMQBA==";
+    let mut builder = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36");
+    if !s.proxy.trim().is_empty() {
+        let proxy = reqwest::Proxy::all(s.proxy.trim())
+            .map_err(|e| format!("Invalid proxy configuration: {e}"))?;
+        builder = builder.proxy(proxy);
+    }
+    let client = builder
+        .build()
+        .map_err(|e| format!("Could not initialize music search: {e}"))?;
+    let payload = serde_json::to_vec(&serde_json::json!({
+        "context": { "client": {
+            "clientName": "WEB_REMIX",
+            "clientVersion": "1.20250101.01.00",
+            "hl": "en",
+            "gl": "US"
+        }},
+        "query": query,
+        "params": PLAYLIST_FILTER
+    })).map_err(|e| format!("Could not encode playlist search request: {e}"))?;
+    let response = client
+        .post(ENDPOINT)
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .header(reqwest::header::ORIGIN, "https://music.youtube.com")
+        .header(reqwest::header::REFERER, "https://music.youtube.com/")
+        .header("X-Origin", "https://music.youtube.com")
+        .header("X-YouTube-Client-Name", "67")
+        .header("X-YouTube-Client-Version", "1.20250101.01.00")
+        .header(reqwest::header::ACCEPT_LANGUAGE, "en-US,en;q=0.9")
+        .body(payload)
+        .send()
+        .await
+        .map_err(|e| format!("Playlist search could not reach YouTube Music: {e}"))?
+        .error_for_status()
+        .map_err(|e| format!("YouTube Music playlist search failed: {e}"))?;
+    let bytes = response.bytes().await
+        .map_err(|e| format!("Could not read YouTube Music playlist response: {e}"))?;
+    let body: Value = serde_json::from_slice(&bytes)
+        .map_err(|e| format!("YouTube Music returned an invalid playlist response: {e}"))?;
+    let mut candidates = Vec::new();
+    collect_music_objects(&body, &mut candidates);
+    let mut items = Vec::new();
+    for object in candidates {
+        let id = find_string(object, &["playlistId"])
+            .or_else(|| find_string(object, &["browseId"]).filter(|id| id.starts_with("VL")))
+            .or_else(|| find_string(object, &["videoId"]).filter(|_| false));
+        let Some(raw_id) = id else { continue };
+        let playlist_id = raw_id.strip_prefix("VL").unwrap_or(&raw_id);
+        if playlist_id.is_empty() { continue; }
+        let title = object
+            .get("flexColumns")
+            .and_then(Value::as_array)
+            .and_then(|columns| columns.first())
+            .and_then(|column| column.pointer("/musicResponsiveListItemFlexColumnRenderer/text"))
+            .map(renderer_text)
+            .filter(|title| !title.trim().is_empty())
+            .or_else(|| object.pointer("/title").map(renderer_text))
+            .filter(|title| !title.trim().is_empty())
+            .unwrap_or_else(|| "YouTube Music playlist".to_owned());
+        let thumbnail = find_thumbnail(object).unwrap_or_default();
+        if items.iter().any(|item: &Value| item["id"].as_str() == Some(playlist_id)) { continue; }
+        items.push(serde_json::json!({
+            "id": playlist_id,
+            "type": "playlist",
+            "title": title,
+            "artist": "YouTube Music",
+            "channel": "YouTube Music",
+            "thumbnail": thumbnail,
+            "source_url": format!("https://music.youtube.com/playlist?list={playlist_id}"),
+            "duration_seconds": null
+        }));
+        if items.len() >= 20 { break; }
+    }
+    Ok(serde_json::json!({ "items": items, "nextPageToken": null }))
+}
+
+fn collect_music_objects<'a>(value: &'a Value, output: &mut Vec<&'a Value>) {
+    match value {
+        Value::Object(map) => {
+            for key in ["musicResponsiveListItemRenderer", "musicTwoRowItemRenderer", "musicPlaylistShelfRenderer"] {
+                if let Some(object) = map.get(key) { output.push(object); }
+            }
+            for child in map.values() { collect_music_objects(child, output); }
+        }
+        Value::Array(values) => for child in values { collect_music_objects(child, output); },
+        _ => {}
+    }
+}
+
+fn find_string(value: &Value, keys: &[&str]) -> Option<String> {
+    match value {
+        Value::Object(map) => {
+            for key in keys {
+                if let Some(found) = map.get(*key).and_then(Value::as_str) { return Some(found.to_owned()); }
+            }
+            for child in map.values() {
+                if let Some(found) = find_string(child, keys) { return Some(found); }
+            }
+            None
+        }
+        Value::Array(values) => values.iter().find_map(|child| find_string(child, keys)),
+        _ => None,
+    }
+}
+
+fn find_thumbnail(value: &Value) -> Option<String> {
+    match value {
+        Value::Object(map) => {
+            if let Some(thumbnails) = map.get("thumbnails").and_then(Value::as_array) {
+                if let Some(url) = thumbnails.iter().rev().find_map(|image| image.get("url").and_then(Value::as_str)) {
+                    return Some(url.to_owned());
+                }
+            }
+            map.values().find_map(find_thumbnail)
+        }
+        Value::Array(values) => values.iter().find_map(find_thumbnail),
+        _ => None,
+    }
+}
+
+fn renderer_text(value: &Value) -> String {
+    value
+        .get("simpleText")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+        .or_else(|| {
+            value.get("runs").and_then(Value::as_array).map(|runs| {
+                runs.iter()
+                    .filter_map(|run| run.get("text").and_then(Value::as_str))
+                    .collect::<String>()
+            })
+        })
+        .unwrap_or_default()
 }
 pub fn parse_progress(line: &str) -> Option<Value> {
     line.strip_prefix("YTHUB_PROGRESS:")

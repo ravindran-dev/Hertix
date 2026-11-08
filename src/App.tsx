@@ -3,18 +3,17 @@ import { useEffect, useState, useCallback } from "react";
 import { listen } from "@tauri-apps/api/event";
 import {
   UserRound,
-  LayoutDashboard,
+  Home,
+  LayoutGrid,
   Search,
-  Music2,
-  ListMusic,
-  PanelLeftClose,
-  PanelRightOpen,
+  Library as LibraryIcon,
+  MoreHorizontal,
   Download,
   History,
   Settings,
   Info,
+  Cloud,
   ArrowUpRight,
-  ChevronRight,
   X,
   CircleCheck,
   LoaderCircle,
@@ -30,8 +29,7 @@ import type {
   Diagnostics,
 } from "./types";
 import { MusicService, Player } from "./components/Player";
-import Library, { PlayerSettings } from "./pages/Library";
-import { useMusic, togglePlayerPanel } from "./stores/music";
+import LibraryPage, { PlayerSettings } from "./pages/Library";
 import Dashboard from "./pages/Dashboard";
 import DiscoverySearch from "./pages/Search";
 import Downloads from "./pages/Downloads";
@@ -42,18 +40,17 @@ import { active, terminal } from "./utils/media";
 import Account from "./pages/Account";
 import { startAccount, useAccount } from "./account/auth";
 import { selectAccount, synchronize } from "./account/sync";
+import HomePage from "./pages/Home";
 
 export default function App() {
-  const accountUser = useAccount(s => s.user?.id || null);
+  const account = useAccount();
+  const accountUser = account.user?.id || null;
   useEffect(() => { startAccount(); }, []);
   useEffect(() => { selectAccount(accountUser); void synchronize(); }, [accountUser]);
   useEffect(() => { const timer = window.setInterval(() => void synchronize(), 15000); return () => window.clearInterval(timer); }, []);
   const { db, page, navigate, error, message, clearError, notify, setDb } =
     useApp();
-  const [collapsed, setCollapsed] = useState(
-    localStorage.getItem("ythub-sidebar") === "collapsed",
-  );
-  const playlists = useMusic((s) => s.playlists);
+  const [moreOpen, setMoreOpen] = useState(false);
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.ctrlKey || e.metaKey) && e.key === ",") {
@@ -83,6 +80,14 @@ export default function App() {
   const [close, setClose] = useState(false);
   const [setup, setSetup] = useState(false);
   const [loading, setLoading] = useState(desktop);
+  useEffect(() => {
+    if (!moreOpen) return;
+    const dismiss = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setMoreOpen(false);
+    };
+    window.addEventListener("keydown", dismiss);
+    return () => window.removeEventListener("keydown", dismiss);
+  }, [moreOpen]);
   useEffect(() => {
     window.scrollTo({ top: 0, behavior: "instant" });
   }, [page]);
@@ -210,160 +215,38 @@ export default function App() {
   const count = db?.jobs.filter((j) => active(j.status)).length || 0;
   const job = db?.jobs.find((j) => j.id === selected) || selectedJob;
   const nav: { page: Page; label: string; Icon: typeof Download }[] = [
-    { page: "dashboard", label: "Home", Icon: LayoutDashboard },
+    { page: "dashboard", label: "Home", Icon: Home },
+    { page: "explore", label: "Explore", Icon: LayoutGrid },
+    { page: "library", label: "Library", Icon: LibraryIcon },
     { page: "search", label: "Search", Icon: Search },
-    { page: "downloads", label: "Downloads", Icon: Download },
-    { page: "library", label: "Music Library", Icon: Music2 },
-    { page: "playlists", label: "Playlists", Icon: ListMusic },
-    { page: "history", label: "History", Icon: History },
-    { page: "settings", label: "Settings", Icon: Settings },
-    { page: "account", label: "Account", Icon: UserRound },
-    { page: "about", label: "About", Icon: Info },
   ];
   return (
-    <div className={`app-shell ${collapsed ? "sidebar-collapsed" : ""}`}>
+    <div className="app-shell">
       <MusicService />
-      <aside className="sidebar">
-        <button className="brand" onClick={() => navigate("dashboard")}>
-          <span className="brand-icon">
-            <img src="/hertix-symbol.png" alt="" />
-          </span>
-          <span className="brand-copy">
-            <img className="brand-wordmark" src="/hertix-logo.png" alt="Hertix" />
-            <small>Music · discovery · playback</small>
-          </span>
-        </button>
-        <div className="sidebar-label">WORKSPACE</div>
-        <nav aria-label="Main navigation">
-          {nav.map(({ page: p, label, Icon }) => (
-            <button
-              key={p}
-              title={label}
-              className={`nav-item ${page === p ? "active" : ""}`}
-              aria-current={page === p ? "page" : undefined}
-              onClick={() => navigate(p)}
-            >
-              <Icon size={19} />
-              <span className="nav-label">{label}</span>
-              {p === "downloads" && count > 0 && (
-                <span className="nav-count">{count}</span>
-              )}
-              {page === p && <ChevronRight className="nav-arrow" size={15} />}
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-playlists">
-          <div className="sidebar-label">YOUR PLAYLISTS</div>
-          {playlists.slice(0, 6).map((p) => (
-            <button
-              title={p.title}
-              key={p.id}
-              className="sidebar-playlist"
-              onClick={() => {
-                useMusic.setState({ selectedPlaylist: p.id });
-                navigate("playlists");
-              }}
-            >
-              <ListMusic size={17} />
-              <span>
-                {p.title}
-                <small>{p.tracks.length} songs</small>
-              </span>
-            </button>
-          ))}
-          {!playlists.length && <p>Your collections, all together.</p>}
-        </div>
-        <div className="sidebar-bottom">
-          <div className="engine-indicator">
-            <span
-              className={
-                versions.length && versions.every((v) => !v.error)
-                  ? "ready"
-                  : ""
-              }
-            />
-            <div>
-              <strong>
-                {versions.length
-                  ? versions.some((v) => v.error)
-                    ? "Engine needs attention"
-                    : "Engine ready"
-                  : "Local media engine"}
-              </strong>
-              <small>Powered by yt-dlp + FFmpeg</small>
-            </div>
-          </div>
-          <button
-            className="sidebar-folder"
-            onClick={() =>
-              void perform(() => call("open_output", { kind: "downloads" }))
-            }
-          >
-            Open download folder <ArrowUpRight size={15} />
-          </button>
-          <div className="version">
-            Hertix <span>v1.2.0</span>
-          </div>
-        </div>
-      </aside>
       <div className="main-shell">
         <header className="topbar">
-          <div>
-            <button
-              className="icon-button"
-              title="Toggle sidebar"
-              aria-label="Toggle sidebar"
-              onClick={() =>
-                setCollapsed((v) => {
-                  localStorage.setItem(
-                    "ythub-sidebar",
-                    v ? "expanded" : "collapsed",
-                  );
-                  return !v;
-                })
-              }
-            >
-              <PanelLeftClose size={18} />
+          <button className="desktop-brand" onClick={() => navigate("dashboard")} aria-label="Hertix Home">
+            <img src="/hertix-logo.png" alt="Hertix" />
+          </button>
+          <div className="desktop-header-actions">
+            <button className="account-avatar" aria-label="Account" title="Account" onClick={() => navigate("account")}>
+              {account.user?.user_metadata?.avatar_url || account.user?.user_metadata?.picture ? <img src={String(account.user.user_metadata.avatar_url || account.user.user_metadata.picture)} alt="" /> : account.user ? <span>{String(account.user.user_metadata?.display_name || account.user.email || "U").trim().charAt(0).toUpperCase()}</span> : <UserRound size={19} />}
             </button>
-            <span className="muted">Hertix</span>
-            <ChevronRight size={13} />
-            <span>{nav.find((n) => n.page === page)?.label}</span>
-          </div>
-          <div className="topbar-right">
-            <button
-              className="icon-button"
-              title="Search music (Ctrl+F)"
-              aria-label="Search music"
-              onClick={() => {
-                navigate("search");
-                setTimeout(
-                  () => document.getElementById("youtube-discovery")?.focus(),
-                  0,
-                );
-              }}
-            >
-              <Search size={17} />
-            </button>
-            <button
-              className="icon-button"
-              title="Toggle Now Playing"
-              aria-label="Toggle Now Playing"
-              onClick={togglePlayerPanel}
-            >
-              <PanelRightOpen size={18} />
-            </button>
-            <span className="privacy">
-              <CircleCheck size={14} />
-              Local & private
-            </span>
-            <button
-              className="icon-button"
-              title="Settings"
-              aria-label="Settings"
-              onClick={() => navigate("settings")}
-            >
-              <Settings size={18} />
-            </button>
+            <div className="desktop-more-anchor">
+              <button className={`icon-button more-button ${moreOpen ? "active" : ""}`} title="More" aria-label="More" aria-expanded={moreOpen} onClick={() => setMoreOpen((value) => !value)}><MoreHorizontal size={21} /></button>
+              {moreOpen && <div className="desktop-more-menu" role="menu" aria-label="More navigation">
+                <div className="desktop-menu-label">HERTIX</div>
+                {[
+                  ["downloads", "Downloads", Download], ["history", "History", History],
+                  ["settings", "Settings", Settings], ["account", "Account", UserRound], ["about", "About Hertix", Info],
+                ].map(([target, label, Icon]) => {
+                  const ItemIcon = Icon as typeof Download;
+                  return <button key={target as string} role="menuitem" className="desktop-menu-item" onClick={() => { navigate(target as Page); setMoreOpen(false); }}><ItemIcon size={17} /><span>{label as string}</span>{target === "downloads" && count > 0 && <small>{count}</small>}</button>;
+                })}
+                <div className="desktop-menu-divider" />
+                <button role="menuitem" className="desktop-menu-item" onClick={() => { void perform(() => call("open_output", { kind: "downloads" })); setMoreOpen(false); }}><Cloud size={17} /><span>Open download folder</span></button>
+              </div>}
+            </div>
           </div>
         </header>
         <main>
@@ -410,10 +293,11 @@ export default function App() {
           ) : (
             <>
               {page === "account" && <Account />}{" "}
-              {page === "dashboard" && <Dashboard onSelect={setSelected} />}{" "}
+              {page === "dashboard" && <HomePage />} {" "}
+              {page === "explore" && <Dashboard onSelect={setSelected} />} {" "}
               {page === "search" && <DiscoverySearch />}
-              {page === "library" && <Library />}
-              {page === "playlists" && <Library playlistPage />}
+              {page === "library" && <LibraryPage />}
+              {page === "playlists" && <LibraryPage playlistPage />}
               {page === "settings" && !db && <PlayerSettings />}
               {page === "downloads" && (
                 <Downloads onSelect={setSelected} />
@@ -485,6 +369,13 @@ export default function App() {
           </footer>
         </main>
       </div>
+      <nav className="desktop-bottom-nav" aria-label="Main navigation">
+        {nav.map(({ page: p, label, Icon }) => (
+          <button key={p} className={`desktop-nav-item ${page === p || (p === "library" && page === "playlists") ? "active" : ""}`} aria-current={page === p ? "page" : undefined} onClick={() => navigate(p)}>
+            <Icon size={19} strokeWidth={page === p ? 2.3 : 1.9} /><span>{label}</span>
+          </button>
+        ))}
+      </nav>
       <Player />
       <Player mini />
       {job && <JobDetails job={job} onClose={() => setSelected(null)} />}

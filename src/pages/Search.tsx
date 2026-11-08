@@ -1,10 +1,12 @@
 import { useEffect, useState } from "react";
-import { ArrowDownToLine, ArrowUpRight, LoaderCircle, Music2, Search as SearchIcon } from "lucide-react";
+import { ArrowDownToLine, ArrowUpRight, Heart, ListPlus, LoaderCircle, Music2, Play, Search as SearchIcon } from "lucide-react";
 import { call, desktop } from "../api";
 import { requireCloud } from "../account/client";
 import { perform, useApp } from "../stores/app";
 import type { Media } from "../types";
 import { time } from "../utils/media";
+import { Artwork } from "../components/Player";
+import { useMusic } from "../stores/music";
 
 type Result = {
   id: string;
@@ -18,11 +20,13 @@ type Result = {
 };
 type SearchResponse = { items: Result[]; nextPageToken: string | null };
 const filters = ["all", "songs", "videos", "playlists", "artists", "channels"];
-const desktopFilters = ["all", "songs", "videos"];
+const desktopFilters = ["all", "songs", "videos", "playlists"];
 
 export default function DiscoverySearch() {
   const { db, navigate, notify } = useApp();
+  const music = useMusic();
   const [query, setQuery] = useState("");
+  const [source, setSource] = useState<"youtube" | "library">("youtube");
   const [filter, setFilter] = useState("all");
   const [items, setItems] = useState<Result[]>([]);
   const [nextToken, setNextToken] = useState<string | null>(null);
@@ -33,6 +37,13 @@ export default function DiscoverySearch() {
 
   useEffect(() => {
     const normalized = query.trim();
+    if (source === "library") {
+      setItems([]);
+      setError("");
+      setBusy(false);
+      setNextToken(null);
+      return;
+    }
     let current = true;
     setNextToken(null);
     if (normalized.length < 2) {
@@ -66,7 +77,11 @@ export default function DiscoverySearch() {
       }
     }, 300);
     return () => { current = false; window.clearTimeout(timer); };
-  }, [query, filter]);
+  }, [query, filter, source]);
+
+  const localResults = source === "library" && query.trim().length >= 1
+    ? music.tracks.filter((track) => [track.title, track.artist, track.album].some((field) => field.toLowerCase().includes(query.trim().toLowerCase())))
+    : [];
 
   async function loadMore() {
     if (!nextToken || moreBusy) return;
@@ -118,6 +133,11 @@ export default function DiscoverySearch() {
         {query && <button className="icon-button" type="button" aria-label="Clear search" onClick={() => setQuery("")}>×</button>}
         <span className="search-shortcut">Ctrl F</span>
       </form>
+      <div className="desktop-search-sources" role="tablist" aria-label="Search source">
+        <button role="tab" aria-selected={source === "youtube"} className={source === "youtube" ? "selected" : ""} onClick={() => setSource("youtube")}><ArrowUpRight size={16} /> YouTube</button>
+        <button role="tab" aria-selected={source === "library"} className={source === "library" ? "selected" : ""} onClick={() => setSource("library")}><Music2 size={16} /> Library</button>
+      </div>
+      {source === "youtube" && <>
       <div className="library-tabs discovery-filters" role="group" aria-label="Search category">
         {(desktop ? desktopFilters : filters).map((item) => <button key={item} className={filter === item ? "selected" : ""} aria-pressed={filter === item} onClick={() => setFilter(item)}>{item[0].toUpperCase() + item.slice(1)}</button>)}
       </div>
@@ -140,15 +160,30 @@ export default function DiscoverySearch() {
             <small>YouTube metadata only · download availability is checked on request</small>
           </div>
           <div className="discovery-actions">
-            <button className="secondary" disabled={busyId === result.id} onClick={() => enqueue(result)}>
-              {busyId === result.id ? <LoaderCircle className="spin" size={15} /> : <ArrowDownToLine size={15} />} Download
-            </button>
+            {result.type === "playlist" || result.type === "video" ? <button className="secondary" disabled={busyId === result.id} onClick={() => enqueue(result)}>
+              {busyId === result.id ? <LoaderCircle className="spin" size={15} /> : <ArrowDownToLine size={15} />} {result.type === "playlist" ? "Download playlist" : "Save audio"}
+            </button> : null}
             <a className="icon-button" href={result.source_url} target="_blank" rel="noreferrer" aria-label={`Open ${result.title} on YouTube`} title="Open on YouTube"><ArrowUpRight size={17} /></a>
           </div>
         </article>)}
       </div>
       {nextToken && <button className="secondary discovery-more" disabled={moreBusy} onClick={() => void loadMore()}>{moreBusy ? <LoaderCircle className="spin" size={16} /> : null} Load more</button>}
       <p className="discovery-note">Search results provide metadata and links. The local engine checks whether a source can be processed when you request a download. Only download content you have permission to use.</p>
+      </>}
+      {source === "library" && <>
+        <div className="discovery-heading"><h2>{query.trim() ? `Library results for “${query.trim()}”` : "Search your music library"}</h2>{localResults.length > 0 && <span>{localResults.length} tracks</span>}</div>
+        {!query.trim() && <div className="card empty"><Music2 size={24} /><h2>Your local music</h2><p>Search by track, artist, or album. Local playback remains available offline.</p></div>}
+        {query.trim() && localResults.length === 0 && <div className="card empty"><Music2 size={24} /><h2>No matching tracks</h2><p>Try a different title, artist, or album.</p></div>}
+        <div className="discovery-results">{localResults.map((track) => <article className="discovery-row local-search-row" key={track.id}>
+          <Artwork track={track} small />
+          <div className="discovery-meta"><strong title={track.title}>{track.title}</strong><span>{track.artist || "Unknown artist"}{track.album ? ` · ${track.album}` : ""}</span></div>
+          <div className="discovery-actions">
+            <button className="icon-button" title="Play" aria-label={`Play ${track.title}`} onClick={() => { music.play(track.id); }}><Play size={17} /></button>
+            <button className={`icon-button ${track.favorite ? "accent" : ""}`} title={track.favorite ? "Remove favorite" : "Add favorite"} aria-label={track.favorite ? "Remove favorite" : "Add favorite"} onClick={() => music.favorite(track.id)}><Heart size={17} fill={track.favorite ? "currentColor" : "none"} /></button>
+            <button className="icon-button" title="Add to queue" aria-label={`Add ${track.title} to queue`} onClick={() => music.enqueue(track.id)}><ListPlus size={17} /></button>
+          </div>
+        </article>)}</div>
+      </>}
     </section>
   );
 }

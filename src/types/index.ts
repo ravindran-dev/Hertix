@@ -167,6 +167,7 @@ export interface EngineVersion {
 }
 export type Page =
   | "dashboard"
+  | "explore"
   | "search"
   | "downloads"
   | "library"

@@ -134,6 +134,7 @@ export default function Library({
   playlistPage?: boolean;
 }) {
   const s = useMusic();
+  const navigate = useApp((state) => state.navigate);
   const [filter, setFilter] = useState(
     sessionStorage.getItem("ythub-library-filter") || "Songs",
   );
@@ -359,6 +360,7 @@ export default function Library({
         >
           {[
             "Songs",
+            "Playlists",
             "Albums",
             "Artists",
             "Favorites",
@@ -372,6 +374,10 @@ export default function Library({
               className={filter === tab ? "selected" : ""}
               key={tab}
               onClick={() => {
+                if (tab === "Playlists") {
+                  navigate("playlists");
+                  return;
+                }
                 setFilter(tab);
                 setScroll(0);
                 sessionStorage.setItem("ythub-library-filter", tab);

@@ -248,9 +248,7 @@ export async function importTrack(
 }
 export function togglePlayerPanel() {
   const s = useMusic.getState();
-  if (!s.queue.length || window.matchMedia("(max-width:1250px)").matches)
-    useMusic.setState({ panel: true, overlay: !s.overlay });
-  else useMusic.setState({ panel: !s.panel, overlay: false });
+  useMusic.setState({ panel: true, overlay: !s.overlay });
 }
 
 function shuffledUpcoming(queue: string[], index: number) {
