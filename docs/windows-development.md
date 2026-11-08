@@ -47,7 +47,7 @@ tests/               URL boundary and frontend queue/progress/settings tests
 docs/                Implementation architecture and operational notes
 ```
 
-Default output: `Downloads/YTHub/{Audio,Video,Playlists,ZIP,Temp}`. Logs, compact playlist manifests and `state.sqlite3` live in `%APPDATA%/dev.ravindran.ythub` (the OS path resolved by Tauri). The previous JSON state migrates automatically and is preserved. Settings include local cookies/proxy paths; these are not encrypted. Cookies content, credentials, complete command lines, and media bytes are never logged. Media bytes are never sent to React; settings remain accessible to the local settings UI.
+Default output: `Downloads/Hertix/{Audio,Video,Playlists,ZIP,Temp}`. Logs, compact playlist manifests and `state.sqlite3` live in `%APPDATA%/dev.ravindran.ythub` (the OS path resolved by Tauri). The previous JSON state migrates automatically and is preserved. Settings include local cookies/proxy paths; these are not encrypted. Cookies content, credentials, complete command lines, and media bytes are never logged. Media bytes are never sent to React; settings remain accessible to the local settings UI.
 
 ## Testing and verification
 

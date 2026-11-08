@@ -265,7 +265,7 @@ export default function SettingsPage({
             )}
             {toggle("autoStart", "Start downloads automatically")}
             {toggle("notifications", "Windows notifications")}
-            {toggle("startWithWindows", "Start YTHub with Windows")}
+            {toggle("startWithWindows", "Start Hertix with Windows")}
             {toggle("startMinimized", "Start in tray at Windows startup")}
             {text(
               "filenameTemplate",

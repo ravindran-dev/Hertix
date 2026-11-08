@@ -40,7 +40,7 @@ internal fun AppUpdateCheckerScreen() {
                     Icon(Icons.Filled.SystemUpdate, null, tint = MaterialTheme.colorScheme.primary)
                     Column {
                         Text("Software Update", style = MaterialTheme.typography.titleLarge)
-                        Text("YTHub ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Hertix ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 when {
@@ -48,7 +48,7 @@ internal fun AppUpdateCheckerScreen() {
                     error != null -> Text(error!!, color = MaterialTheme.colorScheme.error)
                     result == AppUpdateStatus.NoStableRelease -> Text("No stable release has been published yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     result == AppUpdateStatus.UpToDate -> Text("You're up to date.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    result is AppUpdateStatus.Available -> Text("YTHub ${(result as AppUpdateStatus.Available).release.versionName} is ready to download.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    result is AppUpdateStatus.Available -> Text("Hertix ${(result as AppUpdateStatus.Available).release.versionName} is ready to download.", color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 (result as? AppUpdateStatus.Available)?.let { UpdateReleaseActions(it.release) }
                 OutlinedButton(enabled = !checking, onClick = { scope.launch { check() } }, modifier = Modifier.fillMaxWidth()) {
@@ -69,7 +69,7 @@ internal fun AppUpdateAvailableDialog(release: YTHubRelease, onRemindLater: () -
             LiquidGlassPanel(Modifier.fillMaxWidth(), radius = 34.dp, tintAlpha = .22f) {
                 Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Software Update", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                    Text("YTHub ${release.versionName} is available to download.", Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodyLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text("Hertix ${release.versionName} is available to download.", Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodyLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     HorizontalDivider(Modifier.padding(vertical = 14.dp), color = Color.White.copy(alpha = .16f))
                     Text("What’s new", Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Column(Modifier.fillMaxWidth().heightIn(max = height * .40f).verticalScroll(rememberScrollState()).padding(top = 8.dp, bottom = 8.dp)) {
@@ -102,14 +102,14 @@ private fun UpdateReleaseActions(release: YTHubRelease, showNotes: Boolean = tru
                 failed = false
                 if (apk == null) {
                     downloading = true
-                    message = "Downloading YTHub ${release.versionName}…"
+                    message = "Downloading Hertix ${release.versionName}…"
                     runCatching { AppUpdater.download(context, release) { progress = it }.also { AppUpdater.verifyUpdateSigner(context, it) } }
                         .onSuccess { apk = it; message = "Download complete. Android will ask you to confirm installation."; progress = 0f }
                         .onFailure { message = it.message ?: "Download failed."; failed = true; progress = 0f }
                     downloading = false
                 } else {
                     runCatching { AppUpdater.launchInstaller(context, apk!!) }
-                        .onSuccess { opened -> message = if (opened) "Confirm the update in Android's installer." else "Allow YTHub to install apps, return here, and tap Install update." }
+                        .onSuccess { opened -> message = if (opened) "Confirm the update in Android's installer." else "Allow Hertix to install apps, return here, and tap Install update." }
                         .onFailure { message = it.message ?: "Could not open Android's installer."; failed = true }
                 }
             }

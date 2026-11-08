@@ -18,4 +18,4 @@ Resume Interrupted jobs or playlists after restarting. Completed output filename
 
 ## Local state
 
-Use Settings → Open logs and the engine diagnostics panel to inspect lifecycle outcomes and worker limits. SQLite state and its WAL companions are kept in Tauri's per-user app-data directory. Never send state files publicly: they can contain configured proxy information and cookie-file paths. Close YTHub and preserve the database and legacy JSON files before attempting manual recovery. See recovery.md.
+Use Settings → Open logs and the engine diagnostics panel to inspect lifecycle outcomes and worker limits. SQLite state and its WAL companions are kept in Tauri's per-user app-data directory. Never send state files publicly: they can contain configured proxy information and cookie-file paths. Close Hertix and preserve the database and legacy JSON files before attempting manual recovery. See recovery.md.

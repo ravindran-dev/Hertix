@@ -54,7 +54,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.distinctUntilChanged
 
-private val Accent = Color(0xFFFF173D)
+private val Accent = MobileUi.accent
 @Composable internal fun NowPlayingScreen(onLibrary: () -> Unit, onSettings: () -> Unit, onDownload: (String) -> Unit, onMinimize: () -> Unit = onLibrary, onPhoneMusic: () -> Unit = onLibrary, source: String = "Library", motionProgress: Float = 1f) {
     val presentation=remember {MusicPlayback.state.map {it.copy(position=0)}.distinctUntilChanged()}
     val annotations=remember {MusicRepository.state.map {it.copy(queue=emptyList(),queueIndex=0,position=0,repeat=0,shuffle=false)}.distinctUntilChanged()}

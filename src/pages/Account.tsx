@@ -29,7 +29,7 @@ export default function Account() {
   }
   const signedIn = !!account.user && ['authenticated', 'offline', 'refreshing'].includes(account.status) && mode !== 'reset';
   return <section className="account-page">
-    <header className="account-hero"><span className="account-mark"><Cloud size={38}/></span><h1>Your music, anywhere</h1><p>One YTHub account for your library and playlists. Your local downloads stay on this device.</p></header>
+    <header className="account-hero"><span className="account-mark"><Cloud size={38}/></span><h1>Your music, anywhere</h1><p>One Hertix account for your library and playlists. Your local downloads stay on this device.</p></header>
     {!configured ? <div className="account-panel"><h2>Cloud setup required</h2><p>This build has no Supabase connection configured. Downloading and local playback remain available.</p><p>Follow docs/development-setup.md to configure the same project for desktop and Android.</p></div> : signedIn ? <>
       <div className="account-panel"><h2><UserRound/> {profile || 'Your account'}</h2><p>{account.user?.email}</p><p>{account.user?.email_confirmed_at ? 'Email verified' : 'Verification pending'} · {account.status}</p>
         <label>Display name<input maxLength={100} value={profile} onChange={e=>setProfile(e.target.value)}/></label>
@@ -45,7 +45,7 @@ export default function Account() {
       </div>
       <CloudFiles key={account.user!.id}/>
       <div className="account-panel"><h2>Cloud library</h2><p>Metadata alone does not make a song playable on this device.</p>{!(sync.rows.library_items||[]).length && <p>No synchronized tracks yet.</p>}{(sync.rows.library_items||[]).filter(row=>!row.deleted_at).map(row=><div className="account-track" key={String(row.id)}><span><strong>{String(row.title)}</strong><small>{String(row.artist||'Unknown artist')} · {row.cloud_object_id ? 'Cloud file' : 'Metadata only; file unavailable'}</small></span><button aria-label="Toggle favorite" onClick={()=>void run(async()=>enqueue('favorites',String(row.id),{active:!(sync.rows.favorites||[]).some(f=>f.library_item_id===row.id&&f.active)}))}><Heart size={20} fill={(sync.rows.favorites||[]).some(f=>f.library_item_id===row.id&&f.active)?'currentColor':'none'}/></button></div>)}</div>
-    </> : <div className="account-panel account-form"><h2><LockKeyhole/> {mode==='signup'?'Create account':mode==='verify'?'Verify your email':mode==='recover'?'Recover your account':mode==='reset'?'Choose a new password':'Welcome to YTHub'}</h2>
+    </> : <div className="account-panel account-form"><h2><LockKeyhole/> {mode==='signup'?'Create account':mode==='verify'?'Verify your email':mode==='recover'?'Recover your account':mode==='reset'?'Choose a new password':'Welcome to Hertix'}</h2>
       <form onSubmit={e=>{e.preventDefault(); void run(async()=>{
         if(mode==='signin') await signIn(email,password);
         if(mode==='signup') { await signUp(email,password,name);setMode('verify');setMessage('If registration is available, check your email for a verification code.'); }

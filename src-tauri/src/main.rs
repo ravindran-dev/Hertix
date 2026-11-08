@@ -472,7 +472,7 @@ fn main() {
                 window = window.data_directory(store.root.join("WebView"));
             }
             window.build()?;
-            store.log("YTHub started");
+            store.log("Hertix started");
             let s = store.db.lock().unwrap().settings.clone();
             for folder in [&s.download_dir, &s.temp_dir, &s.zip_dir] {
                 if let Err(e) = storage::writable(folder) {
@@ -488,16 +488,16 @@ fn main() {
             let menu = Menu::with_items(
                 app,
                 &[
-                    &MenuItem::with_id(app, "show", "Show YTHub", true, None::<&str>)?,
-                    &MenuItem::with_id(app, "hide", "Hide YTHub", true, None::<&str>)?,
+                    &MenuItem::with_id(app, "show", "Show Hertix", true, None::<&str>)?,
+                    &MenuItem::with_id(app, "hide", "Hide Hertix", true, None::<&str>)?,
                     &MenuItem::with_id(app, "pause", "Pause downloads", true, None::<&str>)?,
                     &MenuItem::with_id(app, "resume", "Resume downloads", true, None::<&str>)?,
-                    &MenuItem::with_id(app, "quit", "Quit YTHub", true, None::<&str>)?,
+                    &MenuItem::with_id(app, "quit", "Quit Hertix", true, None::<&str>)?,
                 ],
             )?;
             let mut tray = TrayIconBuilder::new()
                 .menu(&menu)
-                .tooltip("YTHub — Your YouTube Media Hub")
+                .tooltip("Hertix — Music, Discovery & Playback")
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => {
                         if let Some(w) = app.get_webview_window("main") {
@@ -585,7 +585,7 @@ fn main() {
             window_action
         ])
         .build(tauri::generate_context!())
-        .expect("Unable to initialize YTHub")
+        .expect("Unable to initialize Hertix")
         .run(|app, event| {
             if let tauri::RunEvent::ExitRequested { api, .. } = event {
                 let state = app.state::<AppState>();

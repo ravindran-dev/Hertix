@@ -304,7 +304,7 @@ export default function Dashboard({
             <div>
               <small>DOWNLOAD LOCATION</small>
               <span title={settings?.downloadDir}>
-                {settings?.downloadDir || "Your Downloads folder / YTHub"}
+                {settings?.downloadDir || "Your Downloads folder / Hertix"}
               </span>
             </div>
             <button

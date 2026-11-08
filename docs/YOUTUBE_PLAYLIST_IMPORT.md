@@ -1,6 +1,6 @@
 # Named YouTube playlist downloads
 
-In the audio playlist preview, choose **Create a YTHub playlist** and enter a name. The choice and name are saved with the download. Turning it off overrides automatic playlist creation for that download.
+In the audio playlist preview, choose **Create a Hertix playlist** and enter a name. The choice and name are saved with the download. Turning it off overrides automatic playlist creation for that download.
 
 The downloader records final audio filenames in YouTube order, independently of alphabetical export order or filename numbering. Playlist creation retains playable offline audio even when ZIP-only storage was selected. Successful songs from partial downloads are imported; retries fill missing songs without duplicating the playlist. Local renames, removals and additions are preserved. Playlist analysis no longer truncates the source to 500 entries. Unavailable videos still report download failures.
 

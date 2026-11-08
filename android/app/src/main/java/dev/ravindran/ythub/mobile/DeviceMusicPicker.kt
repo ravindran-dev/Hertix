@@ -134,7 +134,7 @@ internal object DeviceMusicCatalog {
                     Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Icon(Icons.Rounded.MusicNote, null, tint = MaterialTheme.colorScheme.primary)
                         Text("Allow access to your audio", style = MaterialTheme.typography.titleMedium)
-                        Text("YTHub reads your device’s music list so you can choose which songs to add.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Hertix reads your device’s music list so you can choose which songs to add.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         Button(onClick = { permission.launch(DeviceMusicCatalog.permission) }, modifier = Modifier.fillMaxWidth()) { Text("Allow music access") }
                         TextButton(onClick = { context.startActivity(Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))) }, modifier = Modifier.fillMaxWidth()) { Text("Open app permissions") }
                     }

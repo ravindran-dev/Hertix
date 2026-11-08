@@ -24,12 +24,15 @@ jobs:
       - name: Install Android SDK
         run: sdkmanager 'platforms;android-36' 'build-tools;36.0.0'
       - name: Build and validate
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
         run: ./android/gradlew -p android :app:assembleDebug :app:assembleDebugAndroidTest :app:testDebugUnitTest :app:lintDebug --stacktrace
       - name: Upload validation reports and development APK
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: YTHub-Android-validation
+          name: Hertix-Android-validation
           retention-days: 7
           path: |
             android/app/build/reports/

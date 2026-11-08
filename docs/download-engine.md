@@ -1,6 +1,6 @@
 # Download engine
 
-YTHub runs entirely on the local Windows computer. React sends explicit Tauri commands; Rust owns admission, queues, persistence, subprocesses, resource limits, retries, and archives. Browser preview cannot download media.
+Hertix runs entirely on the local Windows computer. React sends explicit Tauri commands; Rust owns admission, queues, persistence, subprocesses, resource limits, retries, and archives. Browser preview cannot download media.
 
 ## Pipeline
 

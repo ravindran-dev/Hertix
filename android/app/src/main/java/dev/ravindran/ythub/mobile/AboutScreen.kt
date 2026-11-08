@@ -21,15 +21,15 @@ internal fun AboutScreen(onDiagnostics: () -> Unit = {}, onBack: () -> Unit = {}
     Column(Modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
         GlassControlSurface(Modifier.fillMaxWidth(), shape = androidx.compose.foundation.shape.RoundedCornerShape(22.dp), tintAlpha = .24f) {
             Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("YTHub ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)
+                Text("Hertix ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium)
                 Text("Music library, playback, downloads and cloud sync.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                MusicActionRow("App updates", Icons.Filled.SystemUpdate, onUpdates, subtitle = "Check for YTHub updates", forward = true)
+                MusicActionRow("App updates", Icons.Filled.SystemUpdate, onUpdates, subtitle = "Check for Hertix updates", forward = true)
                 MusicActionRow("Open-source notices", Icons.Rounded.Description, { showingLicenses = true }, forward = true)
                 MusicActionRow("Diagnostics", Icons.Rounded.BugReport, onDiagnostics, subtitle = "Review local download and playback events", forward = true)
             }
         }
     }
     if (showingLicenses) AlertDialog(onDismissRequest = { showingLicenses = false }, title = { Text("Open-source notices") },
-        text = { Text("YTHub is released under the MIT License. Third-party dependency notices are included with the YTHub source distribution.") },
+        text = { Text("Hertix Android is released under the GPL-3.0 License. Third-party dependency notices are included with the Hertix source distribution.") },
         confirmButton = { TextButton(onClick = { showingLicenses = false }) { Text("Done") } })
 }

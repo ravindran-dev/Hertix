@@ -1,6 +1,6 @@
-# YTHub for Android
+# Hertix for Android
 
-A native Kotlin / Jetpack Compose app with the YTHub red play/download mark, dark and light themes, and local media processing. This project is separate from the Windows Tauri app.
+A native Kotlin / Jetpack Compose app with the Hertix gradient H/play logo, dark and light themes, a local media library and player. This project is separate from the Windows Tauri app.
 
 ## Build
 
@@ -19,14 +19,14 @@ cd android
 .\gradlew.bat :app:assembleDebug :app:testDebugUnitTest :app:lintDebug
 ```
 
-The installable development APK is `app/build/outputs/apk/debug/app-debug.apk`. It is signed with the local Android development key. Keep that key to install subsequent updates without uninstalling the app. A store release needs a dedicated private release key and release validation.
+The installable development APK is `app/build/outputs/apk/debug/app-debug.apk`. It is signed with the local Android development key. Keep that key to install subsequent updates without uninstalling the app. The package ID remains `dev.ravindran.ythub.mobile` so existing YTHub installations receive Hertix updates in place and retain app data and account sessions. A store release needs a dedicated private release key and release validation.
 
 ```powershell
 adb -s YOUR_DEVICE_SERIAL install -r app/build/outputs/apk/debug/app-debug.apk
 adb -s YOUR_DEVICE_SERIAL shell am start -n dev.ravindran.ythub.mobile/.MainActivity
 ```
 
-Minimum Android 8; ARM64 phones and x86-64 emulators are included. The app requests no broad storage access. Android 10+ saves into `Downloads/YTHub` through pending MediaStore entries; a selected folder uses a persistent Storage Access Framework grant. Android 8–9 defaults to app-scoped storage. Share a YouTube link from another app to YTHub or paste it on Home.
+Minimum Android 8; ARM64 phones and x86-64 emulators are included. The app requests no broad storage access. New Android 10+ exports use `Downloads/Hertix`; existing files in `Downloads/YTHub` remain in place and stay readable. A selected folder uses a persistent Storage Access Framework grant. Android 8–9 defaults to app-scoped storage. Share a YouTube link from another app to Hertix or paste it on Home.
 
 ## Implemented flows
 

@@ -58,7 +58,7 @@ import kotlinx.coroutines.withContext
                 MusicToggle("Create downloaded playlists", prefs.downloadPlaylists) { value -> change { it.copy(downloadPlaylists = value) } }
                 Text("Save and reorder the current queue from Now Playing → Queue.", style = MaterialTheme.typography.bodySmall)
             }
-            MusicSettingsSection("Background Playback", "Keep listening when you leave YTHub") {
+            MusicSettingsSection("Background Playback", "Keep listening when you leave Hertix") {
                 MusicToggle("Continue in background", prefs.background) { value -> change { it.copy(background = value) } }
                 Text("Android handles interruptions, audio focus and headphone unplug events. Lock-screen controls use the same playback session.", style = MaterialTheme.typography.bodySmall)
             }

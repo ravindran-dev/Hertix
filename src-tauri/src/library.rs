@@ -100,7 +100,7 @@ pub async fn transcribe_lyrics(
     let whisper = resources.join("whisper-cli.exe");
     if !whisper.is_file() {
         return Err(
-            "The local transcription engine is missing. Reinstall YTHub to repair it.".into(),
+            "The local transcription engine is missing. Reinstall Hertix to repair it.".into(),
         );
     }
     let work = std::env::temp_dir().join(format!("ythub-transcribe-{}", uuid::Uuid::new_v4()));

@@ -1,6 +1,6 @@
-# YTHub architecture
+# Hertix architecture
 
-YTHub contains two independently implemented native applications. The shared boundary is product behavior and branding, not a common runtime or cross-platform database. This guide describes the implemented structure; platform acceptance results belong in the dated audit reports.
+Hertix contains two independently implemented native applications. The shared boundary is product behavior and branding, not a common runtime or cross-platform database. This guide describes the implemented structure; platform acceptance results belong in the dated audit reports.
 
 ## System boundaries
 
@@ -26,7 +26,7 @@ flowchart LR
     end
 ```
 
-There is no hosted YTHub service. Online extraction/download requests use external media services. Files, preferences and application state remain local. Browser preview exposes the frontend without native media operations.
+There is no hosted Hertix service. Online extraction/download requests use external media services. Files, preferences and application state remain local. Browser preview exposes the frontend without native media operations.
 
 ## Android
 

@@ -480,7 +480,7 @@ mod tests {
                 .into();
             job.playlist_id = Some("verification".into());
             job.playlist_index = Some(index + 1);
-            job.playlist_title = Some("YTHub engine verification".into());
+            job.playlist_title = Some("Hertix engine verification".into());
             std::fs::create_dir_all(&job.output_dir).unwrap();
             std::fs::create_dir_all(&job.temp_dir).unwrap();
             let cancel = tokio_util::sync::CancellationToken::new();
@@ -500,7 +500,7 @@ mod tests {
                 assert!(streams.iter().any(|s| s["codec_type"] == "video"));
             } else {
                 assert!(streams.iter().any(|s| s["codec_name"] == "mp3"));
-                assert_eq!(info["format"]["tags"]["album"], "YTHub engine verification");
+                assert_eq!(info["format"]["tags"]["album"], "Hertix engine verification");
                 if q != "best" {
                     let bitrate = info["format"]["bit_rate"]
                         .as_str()

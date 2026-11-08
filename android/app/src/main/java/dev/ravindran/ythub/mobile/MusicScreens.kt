@@ -68,7 +68,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 
-private val MusicRed = Color(0xFFFF173D)
+private val MusicRed = MobileUi.accent
 private val MusicShape = MobileUi.card
 
 @Composable internal fun TrackArtwork(track: LocalTrack?, modifier: Modifier = Modifier, shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(8.dp)) {

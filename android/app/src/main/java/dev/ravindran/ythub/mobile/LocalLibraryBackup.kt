@@ -51,14 +51,14 @@ internal fun LocalLibraryBackup() {
                 }
                 MusicRepository.restoreLibrary(restored)
                 message = "Playlists and favorites restored. Songs need their original audio files on this phone."
-            } catch (_: Exception) { message = "Restore failed. Choose a valid YTHub local library backup." }
+            } catch (_: Exception) { message = "Restore failed. Choose a valid Hertix local library backup (including a legacy YTHub backup)." }
             finally { busy = false }
         }
     }
     Text("Library backup", style = MaterialTheme.typography.titleMedium)
     Text("Save playlists, favorites and song details. Audio and account credentials are excluded. Restore merges the library; matching playlist IDs use the backup version.", style = MaterialTheme.typography.bodySmall)
     Row {
-        TextButton(onClick = { export.launch("ythub-library.json") }, enabled = !busy && ready) { Text("Save backup") }
+        TextButton(onClick = { export.launch("hertix-library.json") }, enabled = !busy && ready) { Text("Save backup") }
         TextButton(onClick = { restore.launch(arrayOf("application/json")) }, enabled = !busy && ready) { Text("Restore backup") }
     }
     if (message.isNotBlank()) Text(message)

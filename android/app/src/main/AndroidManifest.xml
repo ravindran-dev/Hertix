@@ -14,7 +14,7 @@
     <queries>
         <intent><action android:name="android.intent.action.VIEW" /><data android:mimeType="vnd.android.document/directory" /></intent>
     </queries>
-    <application android:name=".YTHubApplication" android:label="YTHub" android:icon="@drawable/ythub_logo" android:roundIcon="@drawable/ythub_logo" android:theme="@style/AppTheme" android:extractNativeLibs="true" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true" android:usesCleartextTraffic="false">
+    <application android:name=".YTHubApplication" android:label="HERTIX" android:icon="@mipmap/ic_launcher" android:roundIcon="@mipmap/ic_launcher_round" android:theme="@style/AppTheme" android:extractNativeLibs="true" android:allowBackup="false" android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true" android:usesCleartextTraffic="false">
         <activity android:name=".MainActivity" android:exported="true" android:launchMode="singleTop">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />

@@ -1,6 +1,6 @@
 # Third-party software
 
-YTHub's original source is MIT licensed. External executables are separate programs invoked through a process boundary, not linked into the Rust application.
+Hertix desktop source is MIT licensed. External executables are separate programs invoked through a process boundary, not linked into the Rust application.
 
 | Component | License / source |
 |---|---|
@@ -17,4 +17,4 @@ YTHub's original source is MIT licensed. External executables are separate progr
 
 The `android/app/src/main/java/dev/ravindran/ythub/mobile/backdrop` sources vendor Kyant0/backdrop v2.0.0, copyright 2025 Kyant0, Apache-2.0 (full license in `android/licenses/backdrop-Apache-2.0.txt`). Source: https://github.com/Kyant0/backdrop. This version comes from BitChord commit b690dc146009d4815825fa4a20815ef2e4ee8898 and retains BitChord's reduced-resolution rendering additions. YTHub changes the package and adapts two GraphicsLayerScope properties for its Compose version. Source headers retain upstream attribution.
 
-The material settings in `ReferenceGlass.kt` are adapted from BitChord's `LiquidGlass.kt`, GPL-3.0, itself adapted from Echo-Music. BitChord source: https://github.com/kushagrasinghx/BitChord; Echo source: https://github.com/EchoMusicApp/Echo-Music. These additions are used only by the GPL-3.0 Android application.
+The material settings in `ReferenceGlass.kt` are adapted from BitChord's `LiquidGlass.kt`, GPL-3.0, itself adapted from Echo-Music. BitChord source: https://github.com/kushagrasinghx/BitChord; Echo source: https://github.com/EchoMusicApp/Echo-Music. These additions are used only by the GPL-3.0 Android application. The Hertix fork retains the upstream package, storage, and protocol identifiers needed for compatibility with existing installations.

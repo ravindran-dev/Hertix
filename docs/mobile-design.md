@@ -1,10 +1,10 @@
-# YTHub mobile design system
+# Hertix mobile design system
 
 Implementation: `android/app/src/main/java/dev/ravindran/ythub/mobile/MainActivity.kt`.
 
 ## Brand and foundations
 
-YTHub — Download. Convert. Manage. The transparent red play/download mark is shared with the Windows app. The mobile interface uses bottom navigation and generous touch targets rather than a sidebar.
+Hertix — Download. Convert. Manage. The transparent red play/download mark is shared with the Windows app. The mobile interface uses bottom navigation and generous touch targets rather than a sidebar.
 
 | Token | Dark | Light |
 | --- | --- | --- |
@@ -35,7 +35,7 @@ System sans-serif typography honors Android accessibility font sizing. Headings 
 | Settings | Download, quality, playlist, appearance, notifications, storage and engine groups |
 | Storage / folder picker | Device usage bar, history media totals, temp cleanup, native folder picker |
 | Errors | Dismissible readable error dialog and retry from failed details |
-| Empty states | YTHub mark, concise message and reachable Home action |
+| Empty states | Hertix mark, concise message and reachable Home action |
 | Light / dark | Shared components using Material color tokens; System follows Android |
 
 ## Interaction rules

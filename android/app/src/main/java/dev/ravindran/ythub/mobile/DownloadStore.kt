@@ -380,7 +380,7 @@ object DownloadStore {
             change(item.id) { if (it.state in listOf("Paused", "Cancelled")) it else it.copy(state = "Failed", error = e.message?.takeLast(1600) ?: "Download failed", line = "Tap retry to continue") }
         }
     }
-    private fun safeName(name: String) = name.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(100).ifBlank { "YTHub playlist" }
+    private fun safeName(name: String) = name.replace(Regex("[\\\\/:*?\"<>|]"), "_").take(100).ifBlank { "Hertix playlist" }
     private fun export(file: File, mime: String, item: DownloadItem): String {
         checkRunning(item.id)
         if (item.options.folderUri.isNotBlank()) {
@@ -398,7 +398,7 @@ object DownloadStore {
         }
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.DISPLAY_NAME, file.name); put(MediaStore.MediaColumns.MIME_TYPE, mime)
-            put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/YTHub/${if (mime == "application/zip") "Playlists" else if (item.audio) "Audio" else "Video"}")
+            put(MediaStore.MediaColumns.RELATIVE_PATH, "${Environment.DIRECTORY_DOWNLOADS}/Hertix/${if (mime == "application/zip") "Playlists" else if (item.audio) "Audio" else "Video"}")
             put(MediaStore.MediaColumns.IS_PENDING, 1)
         }
         val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values) ?: error("Could not create the download file")

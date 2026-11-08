@@ -1,11 +1,11 @@
 <div align="center">
-  <img src="public/ythub-icon.png" alt="YTHub" width="96" />
-  <h1>YTHub</h1>
-  <p><strong>Download. Convert. Manage. Play.</strong></p>
-  <p>A local-first media downloader for Windows and Android, with a native Android music library and player.</p>
+  <img src="public/hertix-symbol.png" alt="Hertix" width="96" />
+  <h1>Hertix</h1>
+  <p><strong>Music · discovery · playback</strong></p>
+  <p>A local-first music player and media library for Windows and Android.</p>
 </div>
 
-YTHub analyzes YouTube media, manages downloads and conversion, and keeps files on your device. Windows uses React, TypeScript, Tauri and Rust. Android is a separate native Kotlin/Jetpack Compose application with Media3 playback. Neither application requires a YTHub account or a hosted application backend. Online analysis and downloads contact external media services; local music playback works offline.
+Hertix discovers music, manages authorized media downloads and conversion, and keeps local files on your device. Windows uses React, TypeScript, Tauri and Rust. Android is a separate native Kotlin/Jetpack Compose application with Media3 playback. An optional Hertix account enables cloud library sync; local playback and downloads work without it.
 
 ## Platforms
 

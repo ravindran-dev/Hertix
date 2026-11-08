@@ -241,7 +241,7 @@ impl Manager {
         r: EnqueueRequest,
     ) -> Result<Vec<String>, String> {
         if self.shutting_down.load(Ordering::SeqCst) {
-            return Err("YTHub is shutting down".into());
+            return Err("Hertix is shutting down".into());
         }
         let _permit = self
             .admission

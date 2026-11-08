@@ -50,7 +50,7 @@ impl Default for Settings {
     fn default() -> Self {
         let root = dirs::download_dir()
             .unwrap_or_else(|| dirs::home_dir().unwrap_or_default())
-            .join("YTHub");
+            .join("Hertix");
         Self {
             theme: "dark".into(),
             download_dir: root.to_string_lossy().into(),

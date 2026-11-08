@@ -226,11 +226,11 @@ export default function App() {
       <aside className="sidebar">
         <button className="brand" onClick={() => navigate("dashboard")}>
           <span className="brand-icon">
-            <img src="/ythub-icon.png" alt="" />
+            <img src="/hertix-symbol.png" alt="" />
           </span>
-          <span>
-            YT<span className="brand-light">Hub</span>
-            <small>Download. Convert. Manage.</small>
+          <span className="brand-copy">
+            <img className="brand-wordmark" src="/hertix-logo.png" alt="Hertix" />
+            <small>Music · discovery · playback</small>
           </span>
         </button>
         <div className="sidebar-label">WORKSPACE</div>
@@ -302,7 +302,7 @@ export default function App() {
             Open download folder <ArrowUpRight size={15} />
           </button>
           <div className="version">
-            YTHub <span>v1.1.0</span>
+            Hertix <span>v1.2.0</span>
           </div>
         </div>
       </aside>
@@ -325,7 +325,7 @@ export default function App() {
             >
               <PanelLeftClose size={18} />
             </button>
-            <span className="muted">YTHub</span>
+            <span className="muted">Hertix</span>
             <ChevronRight size={13} />
             <span>{nav.find((n) => n.page === page)?.label}</span>
           </div>
@@ -439,13 +439,10 @@ export default function App() {
                 ))}{" "}
               {page === "about" && (
                 <div className="about-page">
-                  <span className="brand-icon large">
-                    <img src="/ythub-icon.png" alt="YTHub" />
-                  </span>
-                  <h1>
-                    YTHub<span className="accent">.</span>
-                  </h1>
-                  <p className="about-tagline">Your YouTube Media Hub</p>
+                  <div className="about-wordmark">
+                    <img src="/hertix-logo-dark.png" alt="Hertix" />
+                  </div>
+                  <p className="about-tagline">Your music, beautifully in sync.</p>
                   <p>
                     A local Windows media downloader powered by yt-dlp and
                     FFmpeg.
@@ -454,7 +451,7 @@ export default function App() {
                   </p>
                   <div className="card about-card">
                     <h2>
-                      Application version <span className="muted">1.1.0</span>
+                      Application version <span className="muted">1.2.0</span>
                     </h2>
                     <EnginePanel
                       versions={versions}
@@ -463,7 +460,7 @@ export default function App() {
                     />
                   </div>
                   <p>
-                    YTHub is licensed under MIT. yt-dlp is released under the
+                    Hertix is licensed under MIT. yt-dlp is released under the
                     Unlicense,
                     <br />
                     with bundled dependencies under their respective licenses.
@@ -493,11 +490,11 @@ export default function App() {
       {job && <JobDetails job={job} onClose={() => setSelected(null)} />}
       {close && (
         <Modal
-          title={count ? "Downloads are still active" : "Close YTHub?"}
+          title={count ? "Downloads are still active" : "Close Hertix?"}
           onClose={() => setClose(false)}
         >
           <p>
-            Keep YTHub in the tray to continue downloading, or exit and retain
+            Keep Hertix in the tray to continue downloading, or exit and retain
             partial files for your next session.
           </p>
           <div className="button-row">
@@ -530,7 +527,7 @@ export default function App() {
         </Modal>
       )}
       {setup && db && page !== "settings" && (
-        <Modal title="Welcome to YTHub" onClose={() => setSetup(false)}>
+        <Modal title="Welcome to Hertix" onClose={() => setSetup(false)}>
           <p>
             Everything runs on your computer. Let’s check your media engine
             before the first download.

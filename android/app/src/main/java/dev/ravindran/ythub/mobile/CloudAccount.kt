@@ -30,6 +30,8 @@ object CloudAccount {
     private val mutable = MutableStateFlow(AccountState())
     val state = mutable.asStateFlow()
     val configured get() = BuildConfig.SUPABASE_URL.startsWith("https://") && BuildConfig.SUPABASE_PUBLISHABLE_KEY.isNotBlank()
+    // Keep the legacy package-scoped session file and Android Keystore alias intact so
+    // branded OTA builds restore the signed-in account instead of forcing a new login.
     private val file get() = AtomicFile(File(context.noBackupFilesDir, "account-session.enc"))
     private fun key(): SecretKey {
         val store = KeyStore.getInstance("AndroidKeyStore").apply { load(null) }

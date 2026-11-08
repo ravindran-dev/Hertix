@@ -8,7 +8,7 @@ export async function copyUrl(id: string, url: string): Promise<void> {
 export async function confirmAction(message: string): Promise<boolean> {
   return desktop
     ? confirm(message, {
-        title: "YTHub",
+        title: "Hertix",
         kind: "warning",
         okLabel: "Continue",
         cancelLabel: "Cancel",
@@ -21,7 +21,7 @@ export async function call<T>(
 ): Promise<T> {
   if (!desktop)
     throw new Error(
-      "Open the YTHub Windows application to use the local media engine. Browser preview does not have desktop access.",
+      "Open the Hertix desktop application to use the local media engine. Browser preview does not have desktop access.",
     );
   try {
     return await invoke<T>(command, args);

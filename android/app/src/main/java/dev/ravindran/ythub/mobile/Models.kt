@@ -7,7 +7,7 @@ data class Preferences(
     val theme: String = "Dark", val audioQuality: String = "320", val videoQuality: String = "best",
     val concurrency: Int = 2, val autoStart: Boolean = true, val preserveOrder: Boolean = true,
     val autoZip: Boolean = false, val keepFolder: Boolean = true, val notifications: Boolean = true,
-    val folderUri: String = "", val folderName: String = "Downloads / YTHub", val retries: Int = 3,
+    val folderUri: String = "", val folderName: String = "Downloads / Hertix", val retries: Int = 3,
     val proxy: String = "", val cookiesPath: String = "", val onboardingDone: Boolean = false
 )
 /** One official engine check per day, including recovery from a rolled-back system clock. */

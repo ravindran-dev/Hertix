@@ -28,5 +28,5 @@ jobs:
       - run: npm run tauri build
       - uses: actions/upload-artifact@v4
         with:
-          name: YTHub-Windows-installer
+          name: Hertix-Windows-installer
           path: src-tauri/target/release/bundle/nsis/*-setup.exe

@@ -1,16 +1,15 @@
-# Android over-the-air app updates
+# Hertix Android over-the-air updates
 
-YTHub checks the latest stable release in `ravindran-dev/YTHub` when the About page opens. If a newer semantic version exists, the page shows its release notes and offers an APK download. Android's package installer then asks the user to confirm installation; Android does not allow ordinary apps to silently install APK updates.
+Hertix checks the latest stable release in the existing `ravindran-dev/YTHub` repository when the About page opens. A release includes notes and a signed APK; Android's package installer asks the user to confirm installation.
 
 ## Publish an update
 
-1. Keep `versionName` in `android/app/build.gradle.kts` on semantic versions (`1.0.5`, `1.1.0`, etc.). The `versionCode` follows `major × 1,000,000 + minor × 1,000 + patch` and must always increase.
-2. Build the signed APK with the same signing certificate used for every prior YTHub release.
-3. Push a tag matching the version, such as `v1.0.5`. `.github/workflows/android-release.yml` builds the release APK and attaches it to a GitHub Release. The in-app checker reads the release API and selects its `.apk` asset.
-4. Configure these GitHub Actions repository secrets before publishing: `YTHUB_RELEASE_KEYSTORE_BASE64`, `YTHUB_RELEASE_STORE_PASSWORD`, `YTHUB_RELEASE_KEY_ALIAS`, and `YTHUB_RELEASE_KEY_PASSWORD`.
+1. Increase `versionName` and `versionCode` in `android/app/build.gradle.kts`.
+2. Keep the existing Android application ID `dev.ravindran.ythub.mobile` and the signing certificate used by installed releases. This lets Android apply the update in place and preserve account/session data.
+3. Keep these GitHub Actions secrets configured: `YTHUB_RELEASE_KEYSTORE_BASE64`, `YTHUB_RELEASE_STORE_PASSWORD`, `YTHUB_RELEASE_KEY_ALIAS`, and `YTHUB_RELEASE_KEY_PASSWORD`.
+4. Also configure the public client settings `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. The release workflow fails before building if either is absent; without them, account and cloud-sync functionality is compiled out of the application configuration.
+5. Push a tag matching the version, such as `v1.0.7`. `.github/workflows/android-release.yml` builds and publishes a Hertix-named APK asset. The in-app checker reads the stable release API and selects the APK asset.
 
-The signing key is essential: Android only installs an APK over an existing app when the package name and signing certificate match. Keep one private keystore backed up securely and use it for all release builds. Never commit it or its passwords. APKs built with another signing key cannot update in place; those users must uninstall and reinstall, which removes app-private data. The current preview APK uses this workstation's Android debug key, so a release must use that same key if those preview installs are expected to update in place. For a public production channel, distribute only builds signed with the stable release key from the start.
+The account session stays in the package's `noBackupFilesDir`, encrypted with the Android Keystore alias `ythub-account-v1`. Both names intentionally remain unchanged across the Hertix rebrand. Do not change the application ID, session filename or key alias without an explicit account-data migration. Existing user files are not moved; new Android exports go to `Downloads/Hertix`, while existing `Downloads/YTHub` files remain accessible.
 
-The updater downloads into app-private storage, imposes a 1 GB size cap, and shares the APK with Android's installer through the existing `FileProvider`. If Android requests it, users must enable “Allow from this source” for YTHub before installing. Updates are checked on demand when About opens and can be checked again from the same page.
-
-YTHub uses its own native update client; no separate BitChord SDK is required. The interaction follows the public BitChord release flow at [BitChord Releases](https://github.com/kushagrasinghx/BitChord/releases), which describes in-app update checking, APK download/install, and release notes.
+The updater downloads into app-private storage, imposes a 1 GB size cap, and shares the APK with Android's installer through the existing `FileProvider`. Android may require “Allow from this source” for Hertix. No separate SDK is used.

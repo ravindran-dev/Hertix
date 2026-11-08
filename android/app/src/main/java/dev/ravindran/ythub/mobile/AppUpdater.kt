@@ -38,7 +38,7 @@ internal object AppUpdater {
             connectTimeout = 8_000
             readTimeout = 12_000
             setRequestProperty("Accept", "application/vnd.github+json")
-            setRequestProperty("User-Agent", "YTHub-Android-Updater")
+            setRequestProperty("User-Agent", "Hertix-Android-Updater")
         }
         try {
             val status = connection.responseCode
@@ -54,7 +54,7 @@ internal object AppUpdater {
                 (0 until assets.length()).asSequence().map { assets.getJSONObject(it) }
                     .firstOrNull { it.optString("name").endsWith(".apk", ignoreCase = true) }
             }
-            check(apk != null) { "This YTHub release does not include an APK." }
+            check(apk != null) { "This Hertix release does not include an APK." }
             if (latestCode <= BuildConfig.VERSION_CODE) return@withContext AppUpdateStatus.UpToDate
             AppUpdateStatus.Available(YTHubRelease(tag, latestCode, release.optString("body").take(12_000), apk.getString("browser_download_url")))
         } finally {
@@ -64,14 +64,14 @@ internal object AppUpdater {
 
     suspend fun download(context: Context, release: YTHubRelease, onProgress: (Float) -> Unit): File = withContext(Dispatchers.IO) {
         val directory = File(context.filesDir, "updates").apply { mkdirs() }
-        val destination = File(directory, "YTHub-${release.versionName}.apk")
+        val destination = File(directory, "Hertix-${release.versionName}.apk")
         val temporary = File(directory, "${destination.name}.part")
         val connection = (URL(release.apkUrl).openConnection() as HttpURLConnection).apply {
             requestMethod = "GET"
             connectTimeout = 15_000
             readTimeout = 30_000
             instanceFollowRedirects = true
-            setRequestProperty("User-Agent", "YTHub-Android-Updater")
+            setRequestProperty("User-Agent", "Hertix-Android-Updater")
         }
         try {
             check(connection.responseCode == HttpURLConnection.HTTP_OK) { "APK download failed (${connection.responseCode})." }

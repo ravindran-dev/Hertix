@@ -5,20 +5,26 @@
 :root {
   font-family: var(--font-sans);
   color: #e9e9ec;
-  background: #101113;
+  background: #09090d;
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
-  --bg: #101113;
-  --panel: #191a1dcc;
-  --sidebar: #14151be0;
-  --raised: #202125;
-  --border: #2b2c30;
-  --text: #e9e9ec;
-  --muted: #919299;
-  --accent: #ff1744;
-  --soft-accent: #ff17441a;
-  --input: #141517;
+  --bg: #09090d;
+  --panel: #131319dc;
+  --sidebar: #101016e8;
+  --raised: #1c1c25;
+  --border: #2b2a35;
+  --text: #f7f7fa;
+  --muted: #a1a1ad;
+  --accent: #702bff;
+  --soft-accent: #702bff20;
+  --brand-violet: #702bff;
+  --brand-purple: #9b35f5;
+  --brand-magenta: #e42baf;
+  --brand-pink: #ff438a;
+  --brand-orange: #ff922e;
+  --brand-gradient: linear-gradient(105deg, var(--brand-violet), var(--brand-purple) 28%, var(--brand-magenta) 58%, var(--brand-pink) 80%, var(--brand-orange));
+  --input: #111117;
   --shadow: 0 14px 50px #0005;
   --glass-edge: #ffffff35;
   --glass-tint: #161821cc;
@@ -32,8 +38,8 @@
   --border: #dedfe5;
   --text: #212229;
   --muted: #656670;
-  --accent: #cf3e32;
-  --soft-accent: #cf3e3210;
+  --accent: #702bff;
+  --soft-accent: #702bff12;
   --input: #f8f8fa;
   --shadow: 0 14px 50px #0002;
   --glass-edge: #d7d8e3bb;
@@ -167,7 +173,7 @@ a {
   border: 0;
   background: none;
   color: var(--text);
-  align-items: flex-start;
+  align-items: center;
   text-align: left;
   justify-content: flex-start;
   padding: 0 9px 42px;
@@ -204,6 +210,24 @@ a {
   width: 100%;
   height: 100%;
   object-fit: contain;
+}
+.brand-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  min-width: 0;
+}
+.brand-wordmark {
+  display: block;
+  width: 112px;
+  height: 36px;
+  object-fit: contain;
+  object-position: left center;
+}
+.brand-copy small {
+  margin-top: 2px;
+  font-size: 8px;
+  letter-spacing: .55px;
 }
 .modal-feedback {
   margin-top: 16px;
@@ -1104,6 +1128,16 @@ footer > span {
 .about-page {
   text-align: center;
   padding: 30px 0;
+}
+.about-wordmark {
+  width: min(420px, 78vw);
+  margin: 10px auto 26px;
+}
+.about-wordmark img {
+  display: block;
+  width: 100%;
+  height: auto;
+  object-fit: contain;
 }
 .large {
   width: 80px;
@@ -2549,7 +2583,7 @@ footer {
 }
 .discovery-search:focus-within {
   border-color: #ff55798a;
-  box-shadow: 0 0 0 3px #ff17441a, 0 8px 28px #0003;
+  box-shadow: 0 0 0 3px var(--soft-accent), 0 8px 28px #0003;
 }
 .discovery-search input {
   min-width: 0;
@@ -3018,7 +3052,7 @@ body {
   }
 }
 
-/* YTHub's dark desktop palette and mobile-inspired frosted surfaces. */
+/* Hertix dark desktop palette and mobile-inspired frosted surfaces. */
 :root {
   --bg: #050606;
   --panel: #101313b8;

@@ -31,6 +31,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -40,10 +41,16 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 internal object MobileUi {
-    val background = Color(0xFF0B0B0D)
-    val surface = Color(0xFF18181B)
-    val elevated = Color(0xFF242427)
-    val accent = Color(0xFFFF1838)
+    val background = Color(0xFF09090D)
+    val surface = Color(0xFF131319)
+    val elevated = Color(0xFF1C1C25)
+    val violet = Color(0xFF702BFF)
+    val purple = Color(0xFF9B35F5)
+    val magenta = Color(0xFFE42BAF)
+    val pink = Color(0xFFFF438A)
+    val orange = Color(0xFFFF922E)
+    val accent = violet
+    val brandGradient = Brush.linearGradient(listOf(violet, purple, magenta, pink, orange))
     val page = 16.dp
     val card = RoundedCornerShape(10.dp)
 }

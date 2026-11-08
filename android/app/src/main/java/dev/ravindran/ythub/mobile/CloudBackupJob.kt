@@ -100,7 +100,7 @@ class CloudBackupJob:JobService() {
         val manager=getSystemService(NotificationManager::class.java)
         manager.createNotificationChannel(NotificationChannel("backups","Cloud backup",NotificationManager.IMPORTANCE_LOW))
         val open=PendingIntent.getActivity(this,704,Intent(this,MainActivity::class.java).putExtra("open_account",true),PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT)
-        val notification=NotificationCompat.Builder(this,"backups").setSmallIcon(android.R.drawable.stat_sys_upload).setContentTitle("YTHub backup").setContentText(text).setStyle(NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(open).setOnlyAlertOnce(true).setOngoing(busy).setAutoCancel(!busy).apply {if(busy)setProgress(100,percent,false)}.build()
+        val notification=NotificationCompat.Builder(this,"backups").setSmallIcon(R.drawable.hertix_notification).setContentTitle("Hertix backup").setContentText(text).setStyle(NotificationCompat.BigTextStyle().bigText(text)).setContentIntent(open).setOnlyAlertOnce(true).setOngoing(busy).setAutoCancel(!busy).apply {if(busy)setProgress(100,percent,false)}.build()
         runCatching {manager.notify(704,notification)}
     }
     override fun onStopJob(params:JobParameters):Boolean {

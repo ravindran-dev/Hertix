@@ -31,7 +31,7 @@ class DownloadService : Service() {
         return START_NOT_STICKY
     }
     private fun notification(text: String) = NotificationCompat.Builder(this, "downloads")
-        .setSmallIcon(android.R.drawable.stat_sys_download).setContentTitle("YTHub")
+        .setSmallIcon(R.drawable.hertix_notification).setContentTitle("Hertix")
         .setContentText(text).setOngoing(true).setOnlyAlertOnce(true).setContentIntent(openIntent(this)).build()
     override fun onTimeout(startId: Int, fgsType: Int) {
         DownloadStore.items.value.filter { it.working || it.state == "Queued" }.forEach { DownloadStore.pause(it.id) }

@@ -2,9 +2,9 @@
 
 Application state lives in `%APPDATA%/dev.ravindran.ythub/state.sqlite3`, resolved through Tauri's per-user application-data directory. SQLite uses WAL and `synchronous=FULL`. Settings, job rows and batch rows update transactionally; changed-row fingerprints prevent unchanged rows from being rewritten. No full JSON history rewrite occurs on progress. Persistence runs on blocking workers outside the main database mutex; lifecycle transitions save immediately and progress checkpoints occur every ten seconds.
 
-Keep the SQLite file and its `-wal`/`-shm` companions together when backing up a running application; closing YTHub before copying is simplest. Do not delete a WAL file to repair state.
+Keep the SQLite file and its `-wal`/`-shm` companions together when backing up a running application; closing Hertix before copying is simplest. Do not delete a WAL file to repair state.
 
-On first migration, YTHub imports the former `state.json`, falling back to `state.backup.json` when necessary. Both legacy files are preserved. An incomplete schema-only migration is detected and retried. Legacy import may briefly load the old JSON in full; normal operation uses bounded windows and paged history. Database corruption returns an error and preserves existing files instead of silently clearing history.
+On first migration, Hertix imports the former `state.json`, falling back to `state.backup.json` when necessary. Both legacy files are preserved. An incomplete schema-only migration is detected and retried. Legacy import may briefly load the old JSON in full; normal operation uses bounded windows and paged history. Database corruption returns an error and preserves existing files instead of silently clearing history.
 
 At startup, all unfinished running or queued persisted jobs become **Interrupted**. Source paths, isolated partial directories, playlist manifest paths/cursors and settings snapshots remain recorded. The in-memory startup history window is limited to 232 job records. Resume a job or playlist explicitly; yt-dlp continues compatible partial data, and a job with retained downloaded sources goes directly to processing. A missing source file fails visibly; it is not presented as a completed output.
 

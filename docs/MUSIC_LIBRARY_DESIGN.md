@@ -1,6 +1,6 @@
 # Music library presentation
 
-Reference inspected locally: BitChord's shared UI Common.kt SongRowContent and collection/card patterns. YTHub uses the same visual principles with its own Compose components: artwork-first hierarchy, flat lists, quiet metadata, compact overflow controls, restrained accent color and clear section spacing.
+Reference inspected locally: BitChord's shared UI Common.kt SongRowContent and collection/card patterns. Hertix uses the same visual principles with its own Compose components: artwork-first hierarchy, flat lists, quiet metadata, compact overflow controls, restrained accent color and clear section spacing.
 
 Changes:
 - The Home scenic background is shared across browsing routes at the user’s request; full-player artwork remains its own backdrop. Surface and text colors use neutral charcoal/gray tones.

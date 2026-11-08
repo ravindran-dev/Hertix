@@ -216,7 +216,7 @@ internal object LyricsRepository {
             connectTimeout = 8_000
             readTimeout = 12_000
             setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "YTHub-Android/${BuildConfig.VERSION_NAME} (https://github.com/ravindran-dev/YTHub)")
+            setRequestProperty("User-Agent", "Hertix-Android/${BuildConfig.VERSION_NAME} (https://github.com/ravindran-dev/YTHub)")
         }
         try {
             val status = connection.responseCode

@@ -77,7 +77,7 @@ fun AccountScreen(onCloudLibrary: () -> Unit = {}, onSettings: () -> Unit = {}, 
                 MusicActionRow("Delete account", Icons.Outlined.Delete, { deleting=true }, destructive = true)
             }
             AccountModule("About", "Version and diagnostics", Icons.Outlined.Info) {
-                MusicActionRow("About YTHub", Icons.Outlined.Info, onAbout, subtitle = "Version ${BuildConfig.VERSION_NAME}", forward = true)
+                MusicActionRow("About Hertix", Icons.Outlined.Info, onAbout, subtitle = "Version ${BuildConfig.VERSION_NAME}", forward = true)
             }
             if(deleting) AlertDialog(onDismissRequest={if(!busy)deleting=false},title={Text("Permanently delete account?")},text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
                 Text("Your cloud files, playlists and metadata will be deleted. Local downloaded files remain. This cannot be undone.")

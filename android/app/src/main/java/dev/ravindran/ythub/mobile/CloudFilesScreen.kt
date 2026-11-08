@@ -75,6 +75,6 @@ fun AccountExportButton() {
             context.contentResolver.openOutputStream(uri,"wt")?.bufferedWriter()?.use {it.write(result.toString())} ?: error("File unavailable")
         };message="Account metadata exported. Audio files are not included."} catch(_:Exception){message="Export failed. Retry when connected."}
     } }
-    OutlinedButton(onClick={launcher.launch("ythub-account-export.json")}){Text("Export account data")}
+    OutlinedButton(onClick={launcher.launch("hertix-account-export.json")}){Text("Export account data")}
     if(message.isNotBlank())Text(message)
 }

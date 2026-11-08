@@ -156,9 +156,9 @@ class MainActivity : ComponentActivity() {
         (context as? ComponentActivity)?.enableEdgeToEdge(statusBarStyle = bars, navigationBarStyle = bars)
         onDispose { }
     }
-    val scheme = if (dark) darkColorScheme(primary = Crimson, onPrimary = Color.White, secondary = Crimson, onSecondary = Color.White, secondaryContainer = Color(0xFF3A1420), onSecondaryContainer = Color.White, background = MobileUi.background, surface = MobileUi.surface,
+    val scheme = if (dark) darkColorScheme(primary = Crimson, onPrimary = Color.White, secondary = MobileUi.magenta, onSecondary = Color.White, secondaryContainer = Color(0xFF29153C), onSecondaryContainer = Color.White, background = MobileUi.background, surface = MobileUi.surface,
         surfaceVariant = MobileUi.elevated, onSurface = Color(0xFFF8F8FA), onSurfaceVariant = Color(0xFF9C9CA4), outline = Color(0xFF353946))
-    else lightColorScheme(primary = Color(0xFFC9002C), onPrimary = Color.White, secondary = Crimson, secondaryContainer = Color(0xFFFFDDE4), onSecondaryContainer = Color(0xFF6C1027), background = Color(0xFFF6F5F3), surface = Color.White,
+    else lightColorScheme(primary = MobileUi.violet, onPrimary = Color.White, secondary = MobileUi.magenta, secondaryContainer = Color(0xFFEBDFFF), onSecondaryContainer = Color(0xFF32106C), background = Color(0xFFF7F6FA), surface = Color.White,
         surfaceVariant = Color(0xFFEEECEF), onSurface = Color(0xFF171923), onSurfaceVariant = Color(0xFF66666F), outline = Color(0xFFA8ABB5))
     val pageState = rememberSaveableStateHolder()
     val keyboardOpen = WindowInsets.ime.getBottom(LocalDensity.current) > 0
@@ -303,7 +303,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             }
                         } else {
-                            ScrollingHeaderTitle(if (page == "Home") "YTHub" else if (page == "Library" && librarySearchActive) "Search" else page, Modifier.weight(1f), brand = page == "Home")
+                            ScrollingHeaderTitle(if (page == "Home") "HERTIX" else if (page == "Library" && librarySearchActive) "Search" else page, Modifier.weight(1f), brand = page == "Home")
                             if (page == "Library" && !libraryDetailActive && !librarySearchActive && !librarySearch) {
                                 LibrarySourceToggle {
                                     navigatingBack = false
@@ -325,7 +325,7 @@ class MainActivity : ComponentActivity() {
                                         "Settings" to Icons.Default.Settings,
                                         "History" to Icons.Default.History,
                                         "App updates" to Icons.Default.SystemUpdate,
-                                        "About YTHub" to Icons.Default.Info
+                                        "About Hertix" to Icons.Default.Info
                                     ).forEach { (destination, icon) ->
                                         MusicActionRow(destination, icon, {
                                             appMenu = false
@@ -333,7 +333,7 @@ class MainActivity : ComponentActivity() {
                                                 "Import music from phone" -> openPhoneMusic()
                                                 "Downloads" -> page = "Downloads"
                                                 "Cloud Sync" -> openSecondary(if(CloudAccount.state.value.userId == null) "Account" else "Cloud Library")
-                                                "About YTHub" -> openSecondary("About")
+                                                "About Hertix" -> openSecondary("About")
                                                 "App updates" -> openSecondary("App Updates")
                                                 else -> openSecondary(destination)
                                             }
@@ -450,11 +450,11 @@ class MainActivity : ComponentActivity() {
     Column(Modifier.fillMaxSize().statusBarsPadding().navigationBarsPadding().verticalScroll(rememberScrollState()).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Spacer(Modifier.height(20.dp))
         Box(Modifier.size(100.dp).background(Brush.radialGradient(listOf(Crimson.copy(alpha = .22f), Color.Transparent)), CircleShape), contentAlignment = Alignment.Center) {
-            Image(painterResource(R.drawable.ythub_logo), "YTHub play and download logo", Modifier.size(76.dp))
+            Image(painterResource(R.drawable.hertix_symbol), "Hertix music logo", Modifier.size(76.dp))
         }
         Spacer(Modifier.height(24.dp))
         Text("Your media.\nYour way.", fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.ExtraBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        Text("Welcome to YTHub", fontSize = 18.sp, modifier = Modifier.padding(top = 20.dp))
+        Text("Welcome to Hertix", fontSize = 18.sp, modifier = Modifier.padding(top = 20.dp))
         Text("Download. Convert. Manage.", color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 8.dp))
         Spacer(Modifier.height(24.dp))
         FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) { listOf("MP3", "MP4", "Playlists", "ZIP").forEach { BadgeText(it) } }
@@ -464,7 +464,7 @@ class MainActivity : ComponentActivity() {
         }
         Spacer(Modifier.height(16.dp))
         PrimaryButton("Get started", Icons.Default.ArrowForward, onStart, enabled = engine.contains("ready"))
-        Text("Your YouTube Media Hub", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 20.dp))
+        Text("HERTIX", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(top = 20.dp))
     }
 }
 
@@ -525,7 +525,7 @@ class MainActivity : ComponentActivity() {
 
 @Composable internal fun PlaylistDownloadOptions(enabled: Boolean, onEnabled: (Boolean) -> Unit, name: String, onName: (String) -> Unit) {
     Column(Modifier.fillMaxWidth().testTag("playlist-download-options"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        ToggleRow("Create a YTHub playlist", "Add these songs to your offline library", enabled, onEnabled)
+        ToggleRow("Create a Hertix playlist", "Add these songs to your offline library", enabled, onEnabled)
         if (enabled) {
             OutlinedTextField(name, onName, label = { Text("Playlist name") }, singleLine = true,
                 isError = name.isBlank(), supportingText = { Text(if (name.isBlank()) "Enter a playlist name" else "Keeps YouTube song order. Songs remain available offline, including with ZIP downloads.") },
@@ -758,7 +758,7 @@ class MainActivity : ComponentActivity() {
             ChoiceRow("Download history", "Completed and previous downloads", Icons.Default.History, onHistory)
             ChoiceRow("Download logs", "Review errors and engine output", Icons.Default.Notes, onLogs)
         }
-        Text("YTHub for Android · 1.0.2\nDownload. Convert. Manage.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, modifier = Modifier.padding(vertical = 12.dp))
+        Text("Hertix for Android · ${BuildConfig.VERSION_NAME}\nMusic · discovery · playback", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 12.sp, modifier = Modifier.padding(vertical = 12.dp))
     }
     if (proxyDialog) GlassConfirmDialog(onDismissRequest = { proxyDialog = false }, title = { Text("Proxy") }, text = {
         OutlinedTextField(proxy, { proxy = it }, label = { Text("HTTPS or SOCKS proxy URL") }, placeholder = { Text("http://host:port") }, singleLine = true)
@@ -796,7 +796,7 @@ class MainActivity : ComponentActivity() {
             Label("DOWNLOAD LOCATION")
             Text(prefs.folderName, fontWeight = FontWeight.SemiBold)
             PrimaryButton("Choose folder", Icons.Default.FolderOpen, onFolder)
-            if (prefs.folderUri.isNotBlank()) TextButton(onClick = { DownloadStore.savePrefs(prefs.copy(folderUri = "", folderName = "Downloads / YTHub")) }) { Text("Use default Downloads folder") }
+            if (prefs.folderUri.isNotBlank()) TextButton(onClick = { DownloadStore.savePrefs(prefs.copy(folderUri = "", folderName = "Downloads / Hertix")) }) { Text("Use default Downloads folder") }
         }
         OutlinedButton(onClick = MusicRepository::clearArtwork, modifier = Modifier.fillMaxWidth()) { Text("Clear artwork cache") }
         OutlinedButton(onClick = onClear, modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp)) { Icon(Icons.Default.CleaningServices, null); Text("Clear temporary files", Modifier.padding(start = 10.dp)) }
@@ -863,13 +863,13 @@ class MainActivity : ComponentActivity() {
 }
 @Composable private fun Thumbnail(url: String, modifier: Modifier) {
     Box(modifier.background(MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
-        if (url.isBlank()) Image(painterResource(R.drawable.ythub_logo), "YTHub", Modifier.size(40.dp))
-        else AsyncImage(model = url, contentDescription = "Media thumbnail", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, error = painterResource(R.drawable.ythub_logo))
+        if (url.isBlank()) Image(painterResource(R.drawable.hertix_symbol), "Hertix", Modifier.size(40.dp))
+        else AsyncImage(model = url, contentDescription = "Media thumbnail", modifier = Modifier.fillMaxSize(), contentScale = ContentScale.Crop, error = painterResource(R.drawable.hertix_symbol))
     }
 }
 @Composable private fun EmptyState(title: String, text: String, onHome: () -> Unit) {
     Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = LocalMusicBottomPadding.current).padding(vertical = 20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
-        Image(painterResource(R.drawable.ythub_logo), "YTHub", Modifier.size(44.dp))
+        Image(painterResource(R.drawable.hertix_symbol), "Hertix", Modifier.size(44.dp))
         Text(title, style = MaterialTheme.typography.headlineSmall, modifier = Modifier.padding(top = 12.dp))
         Text(text, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center, modifier = Modifier.padding(top = 12.dp, bottom = 24.dp))
         PrimaryButton("Find something to save", Icons.Default.Link, onHome)
@@ -910,7 +910,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
-private fun copyText(context: Context, url: String) { context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("YTHub source URL", url)) }
+private fun copyText(context: Context, url: String) { context.getSystemService(ClipboardManager::class.java).setPrimaryClip(ClipData.newPlainText("Hertix source URL", url)) }
 private fun openMedia(context: Context, value: String, mime: String) {
     require(value.isNotBlank()) { "This file is not available yet." }
     val uri = Uri.parse(value)
@@ -918,7 +918,7 @@ private fun openMedia(context: Context, value: String, mime: String) {
     context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW).setDataAndType(uri, mime.ifBlank { "*/*" }).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION), "Open with"))
 }
 private fun openFolder(context: Context, folder: String) {
-    val uri = if (folder.isBlank()) Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2FYTHub") else DocumentFile.fromTreeUri(context, Uri.parse(folder))?.uri ?: Uri.parse(folder)
+    val uri = if (folder.isBlank()) Uri.parse("content://com.android.externalstorage.documents/document/primary%3ADownload%2FHertix") else DocumentFile.fromTreeUri(context, Uri.parse(folder))?.uri ?: Uri.parse(folder)
     val intent = Intent(Intent.ACTION_VIEW).setDataAndType(uri, "vnd.android.document/directory").addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
     if (intent.resolveActivity(context.packageManager) != null) context.startActivity(intent)
     else context.startActivity(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).putExtra("android.provider.extra.INITIAL_URI", uri))

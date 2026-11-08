@@ -36,7 +36,12 @@ jobs:
           YTHUB_RELEASE_STORE_PASSWORD: ${{ secrets.YTHUB_RELEASE_STORE_PASSWORD }}
           YTHUB_RELEASE_KEY_ALIAS: ${{ secrets.YTHUB_RELEASE_KEY_ALIAS }}
           YTHUB_RELEASE_KEY_PASSWORD: ${{ secrets.YTHUB_RELEASE_KEY_PASSWORD }}
-        run: ./android/gradlew -p android :app:assembleRelease --stacktrace
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_PUBLISHABLE_KEY: ${{ secrets.SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          test -n "$SUPABASE_URL" || { echo 'Set the public Supabase URL Actions secret.'; exit 1; }
+          test -n "$SUPABASE_PUBLISHABLE_KEY" || { echo 'Set the public Supabase publishable-key Actions secret.'; exit 1; }
+          ./android/gradlew -p android :app:assembleRelease --stacktrace
       - name: Publish APK to GitHub Releases
         env:
           GH_TOKEN: ${{ github.token }}
@@ -44,5 +49,5 @@ jobs:
         run: |
           APK="android/app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
-          gh release create "$RELEASE_TAG" "$APK#YTHub-${RELEASE_TAG}.apk" \
-            --title "YTHub ${RELEASE_TAG}" --generate-notes
+          gh release create "$RELEASE_TAG" "$APK#Hertix-${RELEASE_TAG}.apk" \
+            --title "Hertix ${RELEASE_TAG}" --generate-notes

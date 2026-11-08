@@ -4,7 +4,7 @@ Defaults: two downloads, two processing workers, a YouTube host limit of three, 
 
 Every download holds a global download permit, a host permit, and fragment permits. The actual fragment argument is `min(requested_fragments, aggregate_fragment_budget / configured_download_slots)`, at least one. For four downloads and four fragments, up to 16 fragment operations are requested, rather than an unbounded request multiplier. A host limit below four can further reduce simultaneous downloads. Fragments are yt-dlp native DASH/HLS concurrency, not another pool of full-video jobs.
 
-YouTube is one logical source host: its CDN requests share this pipeline budget. YTHub does not claim to meter every individual CDN hostname, metadata request, thumbnail byte or TCP connection.
+YouTube is one logical source host: its CDN requests share this pipeline budget. Hertix does not claim to meter every individual CDN hostname, metadata request, thumbnail byte or TCP connection.
 
 An optional total bandwidth limit is divided by the configured maximum download slots and passed as yt-dlp `--limit-rate` in bytes per second. This conservative allocation does not redistribute spare capacity when fewer workers run. It bounds the configured media download allowances; it is not a packet-level shaper. Pause active work before changing download/bandwidth/fragment budgets so already-running commands cannot retain conflicting limits.
 
