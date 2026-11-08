@@ -64,6 +64,17 @@ internal object LyricsRepository {
             .onFailure { providerFailure = it as? Exception }.getOrNull()
         if (!videoLyrics.isNullOrBlank()) return@withContext cache(key, videoLyrics)
 
+        // BitChord's YouTube Music lyrics tab is keyed by the exact playing
+        // video and can return regional lyrics absent from title catalogs.
+        val videoUrl = track.downloadId?.let { id ->
+            DownloadStore.items.value.firstOrNull { it.id == id }?.media?.url
+        }.orEmpty()
+        if (videoUrl.isNotBlank()) {
+            val youtubeMusic = runCatching { YouTubeInnertubeLyrics.lyrics(videoUrl) }
+                .onFailure { providerFailure = it as? Exception }.getOrNull()
+            if (!youtubeMusic.isNullOrBlank()) return@withContext cache(key, youtubeMusic)
+        }
+
         // KuGou's public lyric catalogue has broader non-English coverage than
         // LRCLIB and returns line-synced LRC without requiring an API key.
         val kugou = runCatching { findKuGouLyrics(title, artist, duration, track.album) }
@@ -127,6 +138,14 @@ internal object LyricsRepository {
         val better = runCatching { findBetterLyrics(title, artist, duration, track.album) }
             .onFailure { providerFailure = it as? Exception }.getOrNull()
         if (!better.isNullOrBlank()) return@withContext cache(key, better)
+
+        // Captions are a final exact-video fallback, as in BitChord. They remain
+        // lower priority than lyrics catalogs to avoid replacing authored lyrics.
+        if (videoUrl.isNotBlank()) {
+            val transcript = runCatching { YouTubeInnertubeLyrics.transcript(videoUrl) }
+                .onFailure { providerFailure = it as? Exception }.getOrNull()
+            if (!transcript.isNullOrBlank()) return@withContext cache(key, transcript)
+        }
 
         providerFailure?.let { throw IllegalStateException("Lyrics providers could not be reached. Try again later.", it) }
 
