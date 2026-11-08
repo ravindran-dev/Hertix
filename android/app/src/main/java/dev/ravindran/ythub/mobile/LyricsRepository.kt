@@ -69,7 +69,8 @@ internal object LyricsRepository {
         val videoUrl = track.downloadId?.let { id ->
             DownloadStore.items.value.firstOrNull { it.id == id }?.media?.url
         }.orEmpty()
-        var lyricsSourceUrl = videoUrl
+        val lyricsSourceUrls = mutableListOf<String>()
+        if (videoUrl.isNotBlank()) lyricsSourceUrls += videoUrl
         if (videoUrl.isNotBlank()) {
             val youtubeMusic = runCatching { YouTubeInnertubeLyrics.lyrics(videoUrl) }
                 .onFailure { providerFailure = it as? Exception }.getOrNull()
@@ -79,11 +80,11 @@ internal object LyricsRepository {
         // Imported and rescanned local files can lose the download-to-video link.
         // Search YouTube Music as a fallback, then require a close title, artist,
         // and duration match before trusting that video's lyric tab.
-        val searchedSource = runCatching { findYouTubeMusicSource(title, artist, duration) }
+        val searchedSources = runCatching { findYouTubeMusicSources(title, artist, duration) }
             .onFailure { providerFailure = it as? Exception }.getOrNull()
-        if (searchedSource != null) {
-            lyricsSourceUrl = searchedSource.url
-            val youtubeMusic = runCatching { YouTubeInnertubeLyrics.lyrics(searchedSource.url) }
+        for (source in searchedSources.orEmpty()) {
+            if (source.url !in lyricsSourceUrls) lyricsSourceUrls += source.url
+            val youtubeMusic = runCatching { YouTubeInnertubeLyrics.lyrics(source.url) }
                 .onFailure { providerFailure = it as? Exception }.getOrNull()
             if (!youtubeMusic.isNullOrBlank()) return@withContext cache(key, youtubeMusic)
         }
@@ -154,7 +155,7 @@ internal object LyricsRepository {
 
         // Captions are a final exact-video fallback. They remain
         // lower priority than lyrics catalogs to avoid replacing authored lyrics.
-        if (lyricsSourceUrl.isNotBlank()) {
+        for (lyricsSourceUrl in lyricsSourceUrls.take(4)) {
             val transcript = runCatching { YouTubeInnertubeLyrics.transcript(lyricsSourceUrl) }
                 .onFailure { providerFailure = it as? Exception }.getOrNull()
             if (!transcript.isNullOrBlank()) return@withContext cache(key, transcript)
@@ -165,14 +166,20 @@ internal object LyricsRepository {
         cache(key, null)
     }
 
-    private suspend fun findYouTubeMusicSource(title: String, artist: String, duration: Long?): YouTubeResult? {
+    private suspend fun findYouTubeMusicSources(title: String, artist: String, duration: Long?): List<YouTubeResult> {
         val cleanTitle = stripDecorations(title).take(100)
-        if (cleanTitle.length < 2) return null
+        if (cleanTitle.length < 2) return emptyList()
         val cleanArtist = artist.takeIf(::knownArtist).orEmpty().take(80)
-        val queries = listOf("$cleanTitle $cleanArtist".trim(), cleanTitle).distinct()
+        // Innertube can index regional recordings under their Latin transliteration.
+        // Search both scripts, then validate every candidate before requesting its tab.
+        val latinTitle = Tanglish.convert(cleanTitle).trim()
+        val latinArtist = Tanglish.convert(cleanArtist).trim()
+        val primaryQueries = listOf("$cleanTitle $cleanArtist".trim(), "$latinTitle $latinArtist".trim())
+            .filter(String::isNotBlank).distinct()
         val titleTokens = tokens(Tanglish.convert(cleanTitle))
         val artistTokens = tokens(Tanglish.convert(cleanArtist))
-        for (query in queries) {
+        val candidates = linkedMapOf<String, Pair<YouTubeResult, Double>>()
+        suspend fun collect(query: String) {
             val results = runCatching { searchYouTube(query, "songs") }.getOrNull().orEmpty()
             val ranked = results.asSequence()
                 .filter { it.type == "video" }
@@ -194,12 +201,16 @@ internal object LyricsRepository {
                 }
                 .sortedByDescending { it.second }
                 .toList()
-            val best = ranked.firstOrNull() ?: continue
-            val runnerUp = ranked.getOrNull(1)
-            if (runnerUp != null && best.second - runnerUp.second < .035) continue
-            return best.first
+            for ((result, score) in ranked.take(4)) {
+                val existing = candidates[result.id]
+                if (existing == null || score > existing.second) candidates[result.id] = result to score
+            }
         }
-        return null
+        for (query in primaryQueries) collect(query)
+        if (candidates.isEmpty()) {
+            listOf(cleanTitle, latinTitle).filter(String::isNotBlank).distinct().forEach { collect(it) }
+        }
+        return candidates.values.sortedByDescending { it.second }.take(3).map { it.first }
     }
 
     private sealed interface LookupResult {

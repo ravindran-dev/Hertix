@@ -25,6 +25,7 @@ data class DownloadItem(
     val options: Preferences = Preferences(), val completedCount: Int = 0, val failedCount: Int = 0,
     val exportedNames: List<String> = emptyList(),
     val createLibraryPlaylist: Boolean? = null, val libraryPlaylistName: String? = null, val playlistFileOrder: List<String>? = null,
+    val completedEntryIds: List<String> = emptyList(), val failedEntryIds: List<String> = emptyList(),
     val cloudRecord: String? = null, val accountId: String? = null, val playWhenReady: Boolean = false, val cloudAttempts: Int = 0, val retryAfter: Long = 0,
     val localCopyDeleted: Boolean = false
 ) {
@@ -48,3 +49,12 @@ fun bytesLabel(bytes: Long): String {
 }
 fun durationLabel(seconds: Long): String = if (seconds >= 3600) "%d:%02d:%02d".format(seconds / 3600, seconds / 60 % 60, seconds % 60) else "%d:%02d".format(seconds / 60, seconds % 60)
 fun qualityLabel(audio: Boolean, quality: String): String = if (quality == "best") "Best available" else if (audio) "$quality kbps" else "${quality}p"
+
+internal fun playlistEntryKey(media: MediaInfo): String = runCatching {
+    val uri = java.net.URI(media.url)
+    val videoId = uri.rawQuery.orEmpty().split('&').firstNotNullOfOrNull { parameter ->
+        val pair = parameter.split('=', limit = 2)
+        if (pair.firstOrNull()?.equals("v", ignoreCase = true) == true) pair.getOrNull(1) else null
+    } ?: uri.path.orEmpty().substringAfterLast('/').takeIf { it.matches(Regex("[A-Za-z0-9_-]{11}")) }
+    videoId?.takeIf(String::isNotBlank) ?: media.url.trim().trimEnd('/')
+}.getOrDefault(media.url.trim())

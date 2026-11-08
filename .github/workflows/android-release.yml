@@ -50,4 +50,4 @@ jobs:
           APK="android/app/build/outputs/apk/release/app-release.apk"
           test -s "$APK"
           gh release create "$RELEASE_TAG" "$APK#Hertix-${RELEASE_TAG}.apk" \
-            --title "Hertix ${RELEASE_TAG}" --generate-notes
+            --title "Hertix ${RELEASE_TAG}" --notes-file android/OTA_RELEASE_NOTES.md

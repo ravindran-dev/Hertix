@@ -270,7 +270,13 @@ object DownloadStore {
     }
     fun resume(id: String) {
         synchronized(lock) { require(id !in active) { "The previous worker is stopping. Try again in a moment." } }
-        change(id) { if (it.state in listOf("Paused", "Interrupted", "Failed", "Cancelled")) it.copy(state = "Queued", error = "", line = "Waiting for a download slot") else it }
+        change(id) {
+            if (it.state in listOf("Paused", "Interrupted", "Failed", "Cancelled")) {
+                val failedCount = it.failedEntryIds.orEmpty().size
+                val failedOnly = it.media.playlist && failedCount > 0
+                it.copy(state = "Queued", error = "", line = if (failedOnly) "Retrying $failedCount failed tracks" else "Resuming unfinished tracks")
+            } else it
+        }
         ensureService()
     }
     fun remove(id: String) {
@@ -324,12 +330,32 @@ object DownloadStore {
         val directory = File(workRoot, item.id).apply { mkdirs() }
         try {
             checkRunning(item.id)
-            var failures = 0
-            var completed = 0
-            val sources = if (item.media.playlist) item.media.entries else listOf(item.media)
-            check(sources.isNotEmpty()) { "This playlist has no downloadable items." }
-            val sourceFiles = mutableListOf<String>()
-            for ((index, media) in sources.withIndex()) {
+            val allSources = if (item.media.playlist) item.media.entries else listOf(item.media)
+            check(allSources.isNotEmpty()) { "This playlist has no downloadable items." }
+            val alreadySaved = directory.listFiles().orEmpty().filter { it.isFile && it.length() > 0 }.map { it.name }
+            val completedIds = current(item.id).completedEntryIds.orEmpty().toMutableSet()
+            completedIds += allSources.map(::playlistEntryKey).filter { key -> alreadySaved.any { it.contains("[$key].") } }
+            val failedIds = current(item.id).failedEntryIds.orEmpty().toMutableSet()
+            if (item.media.playlist && failedIds.isEmpty() && current(item.id).failedCount > 0) {
+                failedIds += allSources.map(::playlistEntryKey).filterNot { it in completedIds }
+            }
+            failedIds -= completedIds
+            if (item.media.playlist) change(item.id) {
+                it.copy(completedEntryIds = completedIds.toList(), failedEntryIds = failedIds.toList(),
+                    completedCount = completedIds.size, failedCount = failedIds.size)
+            }
+            val pendingSources = allSources.withIndex().filter { (_, media) ->
+                val key = playlistEntryKey(media)
+                key !in completedIds && (failedIds.isEmpty() || key in failedIds)
+            }
+            val sourceFiles = current(item.id).playlistFileOrder.orEmpty().toMutableList()
+            if (item.media.playlist && failedIds.isNotEmpty()) {
+                change(item.id) { it.copy(line = "Retrying failed tracks · ${completedIds.size}/${allSources.size} already complete") }
+            }
+            for ((attemptIndex, indexedMedia) in pendingSources.withIndex()) {
+                val index = indexedMedia.index
+                val media = indexedMedia.value
+                val entryKey = playlistEntryKey(media)
                 checkRunning(item.id)
                 check(directory.usableSpace > 256L * 1024 * 1024) { "Storage almost full. Free at least 256 MB, then retry." }
                 val prefix = if (item.media.playlist && item.options.preserveOrder) "%03d - ".format(index + 1) else ""
@@ -359,8 +385,8 @@ object DownloadStore {
                             change(item.id, false) {
                                 if (it.state in listOf("Paused", "Cancelled")) it else it.copy(
                                     state = if (line.contains("[ExtractAudio]") || line.contains("[Merger]")) "Processing" else "Downloading",
-                                    progress = ((index + progress.coerceIn(0f, 100f) / 100f) / sources.size) * 100f,
-                                    eta = eta, line = if (sources.size > 1) "${index + 1}/${sources.size} · ${line.takeLast(180)}" else line.takeLast(180))
+                                    progress = ((completedIds.size + attemptIndex + progress.coerceIn(0f, 100f) / 100f) / allSources.size) * 100f,
+                                    eta = eta, line = if (allSources.size > 1) "${completedIds.size + attemptIndex + 1}/${allSources.size} · ${line.takeLast(180)}" else line.takeLast(180))
                             }
                         }
                     }
@@ -368,17 +394,30 @@ object DownloadStore {
                         val path = result.out.lineSequence().lastOrNull { it.startsWith("__YTHUB_FILE__") }?.removePrefix("__YTHUB_FILE__")?.trim()
                         val saved = path?.let { File(it).canonicalFile }
                         check(saved != null && saved.parentFile == directory.canonicalFile && saved.isFile) { "Could not identify the downloaded song. Retry to finish importing the playlist." }
-                        sourceFiles.add(saved.name)
+                        if (saved.name !in sourceFiles) sourceFiles.add(saved.name)
                         change(item.id) { it.copy(playlistFileOrder = sourceFiles.toList()) }
                     }
-                    completed++
+                    if (item.media.playlist) {
+                        completedIds += entryKey
+                        failedIds -= entryKey
+                    }
                 } catch (e: Exception) {
                     checkRunning(item.id)
                     if (!item.media.playlist) throw e
-                    failures++
+                    failedIds += entryKey
                 }
-                change(item.id) { if (it.state in listOf("Paused", "Cancelled")) it else it.copy(completedCount = completed, failedCount = failures) }
+                change(item.id) {
+                    if (it.state in listOf("Paused", "Cancelled")) it else it.copy(
+                        completedEntryIds = completedIds.toList(), failedEntryIds = failedIds.toList(),
+                        completedCount = if (it.media.playlist) completedIds.size else 0,
+                        failedCount = failedIds.size,
+                        line = if (it.media.playlist) "${completedIds.size}/${allSources.size} complete · ${failedIds.size} failed" else it.line
+                    )
+                }
             }
+            val latest = current(item.id)
+            val completed = if (item.media.playlist) latest.completedEntryIds.orEmpty().size else if (pendingSources.isNotEmpty()) 1 else 0
+            val failures = if (item.media.playlist) latest.failedEntryIds.orEmpty().size else 0
             checkRunning(item.id)
             val files = directory.listFiles()?.filter { it.extension.lowercase() in listOf("mp3", "mp4", "mkv", "webm", "m4a") && it.length() > 0 }?.sortedBy { it.name } ?: emptyList()
             check(files.isNotEmpty()) { "No media was downloaded. Retry or update the engine in Settings." }
@@ -415,7 +454,7 @@ object DownloadStore {
             change(item.id) { if (it.state in listOf("Paused", "Cancelled")) it else it.copy(state = if (failures == 0) "Completed" else "Failed", progress = 100f, bytes = files.sumOf { file -> file.length() },
                 uris = uris.toList(), zipUri = zipUri.ifBlank { it.zipUri }, mime = if (item.audio) "audio/mpeg" else "video/mp4",
                 line = "$completed downloaded${if (failures > 0) " · $failures failed" else " · saved to ${item.options.folderName}"}",
-                error = if (failures > 0) "$failures playlist items failed. Retry to attempt the playlist again; existing local files will be reused." else "") }
+                error = if (failures > 0) "$failures playlist tracks failed. Retry failed tracks to download only the unfinished items." else "") }
             if (failures == 0) { directory.deleteRecursively(); DownloadService.notifyFinished(context, current(item.id)) }
             if (item.audio && (MusicRepository.state.value.settings.autoAdd || MusicRepository.state.value.settings.autoPlayDownload || item.createsLibraryPlaylist(MusicRepository.state.value.settings.downloadPlaylists))) {
                     MusicRepository.rescan(MusicRepository.state.value.settings.autoPlayDownload)

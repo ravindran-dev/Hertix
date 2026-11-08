@@ -8,6 +8,7 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -46,6 +47,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.graphics.layer.GraphicsLayer
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -83,14 +85,15 @@ private val MusicShape = MobileUi.card
         drawCircle(Color.White.copy(alpha=.045f),radius=size.minDimension*.40f,center=Offset(size.width*.78f,size.height*.18f))
         drawCircle(Color.White.copy(alpha=.035f),radius=size.minDimension*.55f,center=Offset(size.width*.10f,size.height*.95f))
     },contentAlignment=Alignment.Center) {
-        Icon(Icons.Rounded.Album,null,Modifier.fillMaxSize(.34f),tint=Color.White.copy(alpha=.55f))
+        Image(painterResource(R.drawable.hertix_symbol), "Hertix", Modifier.fillMaxSize(.42f))
         if(track?.artwork?.isNotBlank()==true) AsyncImage(remember(track.artwork) {
             when {
                 track.artwork.startsWith("content://") -> Uri.parse(track.artwork)
                 track.artwork.startsWith("http://") || track.artwork.startsWith("https://") -> track.artwork
                 else -> File(track.artwork)
             }
-        },"Album artwork",Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Crop)
+        },"Album artwork",Modifier.fillMaxSize(),contentScale=androidx.compose.ui.layout.ContentScale.Crop,
+            error = painterResource(R.drawable.hertix_symbol), fallback = painterResource(R.drawable.hertix_symbol))
     }
 }
 @Composable
@@ -226,7 +229,9 @@ private fun SearchSourceSwitch(youtubeSelected: Boolean, onSelectYouTube: () -> 
         downloadingYouTube = result.id
         scope.launch {
             try {
-                val media = DownloadStore.analyze(result.url, false)
+                val isPlaylist = result.type == "playlist"
+                val media = DownloadStore.analyze(result.url, isPlaylist)
+                check(!isPlaylist || media.playlist && media.entries.isNotEmpty()) { "YouTube did not return any downloadable playlist tracks. Open the playlist and try again." }
                 val id = DownloadStore.enqueue(media, true, DownloadStore.prefs.value.audioQuality)
                 onDownload(id)
             } catch (cancelled: kotlinx.coroutines.CancellationException) {
@@ -398,8 +403,8 @@ private fun SearchSourceSwitch(youtubeSelected: Boolean, onSelectYouTube: () -> 
                                 OutlinedButton(onClick = { openYouTubeLink(context, result.url) }, modifier = Modifier.weight(1f).heightIn(min = 44.dp), shape = RoundedCornerShape(15.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp)) {
                                     Icon(Icons.Rounded.OpenInNew, null, Modifier.size(17.dp)); Spacer(Modifier.width(6.dp)); Text("Open", maxLines = 1, softWrap = false)
                                 }
-                                if (result.type == "video") Button(onClick = { enqueueYouTubeAudio(result) }, modifier = Modifier.weight(1.15f).heightIn(min = 44.dp), enabled = downloadingYouTube == null, shape = RoundedCornerShape(15.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp)) {
-                                        Icon(if (downloadingYouTube == result.id) Icons.Rounded.Downloading else Icons.Rounded.Download, null, Modifier.size(17.dp)); Spacer(Modifier.width(6.dp)); Text(if (downloadingYouTube == result.id) "Preparing" else "Save audio", maxLines = 1, softWrap = false)
+                                if (result.type == "video" || result.type == "playlist") Button(onClick = { enqueueYouTubeAudio(result) }, modifier = Modifier.weight(1.15f).heightIn(min = 44.dp), enabled = downloadingYouTube == null, shape = RoundedCornerShape(15.dp), contentPadding = PaddingValues(horizontal = 10.dp, vertical = 7.dp)) {
+                                        Icon(if (downloadingYouTube == result.id) Icons.Rounded.Downloading else Icons.Rounded.Download, null, Modifier.size(17.dp)); Spacer(Modifier.width(6.dp)); Text(if (downloadingYouTube == result.id) "Preparing" else if (result.type == "playlist") "Download playlist" else "Save audio", maxLines = 1, softWrap = false)
                                 }
                             }
                         }
@@ -558,9 +563,6 @@ private fun youtubeSearchErrorMessage(raw: String?): String {
     val detail = raw.orEmpty()
     val normalized = detail.lowercase()
     return when {
-        "quotaexceeded" in normalized || "daily limit" in normalized ||
-            ("quota" in normalized && "search quer" in normalized) ->
-            "YouTube search has reached this project's daily limit. Try again later, or search your Library meanwhile."
         "429" in normalized || "rate limit" in normalized ->
             "YouTube search is busy right now. Wait a little and try again."
         else -> detail.ifBlank { "YouTube search failed. Please try again." }

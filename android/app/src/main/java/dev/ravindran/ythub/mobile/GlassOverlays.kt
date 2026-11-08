@@ -30,10 +30,10 @@ import androidx.compose.ui.graphics.TransformOrigin
 internal fun GlassSheet(onDismissRequest: () -> Unit, sheetState: SheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), content: @Composable ColumnScope.() -> Unit) {
     val scene = LocalGlassScene.current
     ModalBottomSheet(onDismissRequest = onDismissRequest, sheetState = sheetState,
-        containerColor = Color.Transparent, dragHandle = null, scrimColor = Color.Black.copy(alpha = .22f)) {
+        containerColor = Color.Transparent, dragHandle = null, scrimColor = Color.Black.copy(alpha = .14f)) {
         GlassWindowBlur()
         LiquidGlassPanel(Modifier.fillMaxWidth().padding(horizontal = 8.dp), backdrop = scene?.layer, contentOrigin = scene?.origin ?: androidx.compose.ui.geometry.Offset.Zero,
-            radius = 32.dp, tintAlpha = .20f) {
+            radius = 32.dp, tintAlpha = .14f) {
             Column(Modifier.fillMaxWidth()) {
                 Box(Modifier.align(Alignment.CenterHorizontally).padding(vertical = 12.dp).size(34.dp, 4.dp).clip(RoundedCornerShape(50)).background(MaterialTheme.colorScheme.onSurface.copy(alpha = .25f)))
                 content()
@@ -57,7 +57,7 @@ internal fun GlassConfirmDialog(onDismissRequest: () -> Unit, confirmButton: @Co
             scaleY = .94f + .06f * reveal.value
             translationY = 10.dp.toPx() * (1f - reveal.value)
             transformOrigin = TransformOrigin(.5f, .6f)
-        }, backdrop = scene?.layer, contentOrigin = scene?.origin ?: androidx.compose.ui.geometry.Offset.Zero, radius = 30.dp, tintAlpha = .20f) {
+        }, backdrop = scene?.layer, contentOrigin = scene?.origin ?: androidx.compose.ui.geometry.Offset.Zero, radius = 30.dp, tintAlpha = .14f) {
             Column(Modifier.fillMaxWidth().heightIn(max = (LocalConfiguration.current.screenHeightDp * .78f).dp).verticalScroll(rememberScrollState()).padding(22.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                 if (icon != null) Box(Modifier.align(Alignment.CenterHorizontally)) { icon() }
                 if (title != null) ProvideTextStyle(MaterialTheme.typography.titleLarge) { title() }

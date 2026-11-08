@@ -10,6 +10,14 @@ Hertix checks the latest stable release in the existing `ravindran-dev/Hertix` r
 4. Also configure the public client settings `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. The release workflow fails before building if either is absent; without them, account and cloud-sync functionality is compiled out of the application configuration.
 5. Push a tag matching the version, such as `v1.0.21`. `.github/workflows/android-release.yml` builds and publishes a Hertix-named APK asset. The in-app checker reads the stable release API and selects the APK asset.
 
+## v1.0.22
+
+- Search lyrics using original-script and Tanglish YouTube Music queries, then check multiple closely matched videos instead of stopping at the first video without a lyrics tab.
+- Download a YouTube playlist directly from YouTube search results.
+- Remember completed and failed playlist tracks. Retrying skips completed tracks and retries only failed tracks; older download tasks recover completed tracks from their saved files.
+- Use the Hertix symbol as artwork when a track has no usable thumbnail.
+- Make contextual menus and the update dialog more translucent, with a visible blurred page behind them.
+
 ## v1.0.21
 
 - Download APKs through the release asset API redirect instead of the browser download route.

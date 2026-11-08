@@ -256,7 +256,7 @@ internal fun GlassPopover(onDismiss: () -> Unit, panelWidth: Dp = 252.dp, conten
 
 @Composable
 internal fun GlassMenuBlock(backdrop: GraphicsLayer? = null, contentOrigin: Offset = Offset.Zero, content: @Composable ColumnScope.() -> Unit) {
-    LiquidGlassPanel(Modifier.fillMaxWidth(), backdrop = backdrop, contentOrigin = contentOrigin, radius = 28.dp, tintAlpha = .16f) {
+    LiquidGlassPanel(Modifier.fillMaxWidth(), backdrop = backdrop, contentOrigin = contentOrigin, radius = 28.dp, tintAlpha = .12f) {
         Column(Modifier.fillMaxWidth().padding(6.dp), content = content)
     }
 }

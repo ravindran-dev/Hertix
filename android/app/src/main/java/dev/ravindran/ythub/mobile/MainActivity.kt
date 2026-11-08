@@ -673,7 +673,7 @@ class MainActivity : ComponentActivity() {
                         if (!item.terminal) {
                             GlassMenuItem(text = { Text(if (item.state in listOf("Paused", "Interrupted")) "Resume" else "Pause") }, onClick = { menu = false; if (item.state in listOf("Paused", "Interrupted")) onResume() else onPause() })
                             GlassMenuItem(text = { Text("Cancel download") }, onClick = { menu = false; onCancel() })
-                        } else if (item.state != "Completed") GlassMenuItem(text = { Text("Retry") }, onClick = { menu = false; onResume() })
+                        } else if (item.state != "Completed") GlassMenuItem(text = { Text(if (item.media.playlist && item.failedCount > 0) "Retry ${item.failedCount} failed tracks" else "Retry") }, onClick = { menu = false; onResume() })
                         if (item.state == "Completed" && item.audio && item.uris.isNotEmpty() && onAdd != null) GlassMenuItem(text = { Text("Add to library") }, onClick = { menu = false; onAdd() })
                         if (item.terminal && onDeleteLocal != null) GlassMenuItem(text = { Text("Delete local copy", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; confirmDelete = true })
                     }
@@ -877,7 +877,10 @@ class MainActivity : ComponentActivity() {
         if (item.zipUri.isNotBlank()) OutlinedButton(onClick = onExtract, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text("Extract and import playlist") }
         if (item.state == "Completed" && item.uris.isNotEmpty()) PrimaryButton(if (item.audio) "Play now" else "Open video", Icons.Default.PlayArrow, onOpen)
         if (item.zipUri.isNotBlank()) PrimaryButton("Open ZIP", Icons.Default.FolderZip, onZip)
-        if (item.state in listOf("Failed", "Cancelled", "Paused", "Interrupted")) PrimaryButton(if (item.state in listOf("Paused", "Interrupted")) "Resume download" else "Retry download", Icons.Default.Refresh, onResume)
+        if (item.state in listOf("Failed", "Cancelled", "Paused", "Interrupted")) PrimaryButton(
+            if (item.state in listOf("Paused", "Interrupted")) "Resume download"
+            else if (item.media.playlist && item.failedCount > 0) "Retry ${item.failedCount} failed tracks"
+            else "Retry download", Icons.Default.Refresh, onResume)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             OutlinedButton(onClick = onCopy, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Icon(Icons.Default.ContentCopy, null, Modifier.size(18.dp)); Text("Source", Modifier.padding(start = 7.dp)) }
             OutlinedButton(onClick = onFolder, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp)); Text("Folder", Modifier.padding(start = 7.dp)) }
