@@ -44,8 +44,8 @@ See [player behavior and persistence](docs/MUSIC_PLAYER.md) and the [device audi
 Clone the repository:
 
 ```sh
-git clone https://github.com/ravindran-dev/YTHub.git
-cd YTHub
+git clone https://github.com/ravindran-dev/Hertix.git
+cd Hertix
 ```
 
 ### Android

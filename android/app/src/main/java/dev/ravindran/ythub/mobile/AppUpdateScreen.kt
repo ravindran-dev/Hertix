@@ -64,24 +64,46 @@ internal fun AppUpdateAvailableDialog(release: YTHubRelease, onRemindLater: () -
     val height = LocalConfiguration.current.screenHeightDp.dp
     val width = LocalConfiguration.current.screenWidthDp.dp
     Dialog(onDismissRequest = onRemindLater, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        Column(Modifier.width(minOf(width - 48.dp, 480.dp)).heightIn(max = height * .84f).clip(RoundedCornerShape(34.dp))
-            .then(Modifier), verticalArrangement = Arrangement.spacedBy(0.dp)) {
-            LiquidGlassPanel(Modifier.fillMaxWidth(), radius = 34.dp, tintAlpha = .22f) {
-                Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+        val panelHeight = (height * .76f).coerceIn(440.dp, 680.dp).coerceAtMost(height - 32.dp)
+        LiquidGlassPanel(
+            Modifier.width(minOf(width - 40.dp, 460.dp)).height(panelHeight).clip(RoundedCornerShape(34.dp)),
+            radius = 34.dp,
+            tintAlpha = .14f,
+            animateOnTouch = false
+        ) {
+            Column(Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 18.dp)) {
+                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Software Update", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-                    Text("Hertix ${release.versionName} is available to download.", Modifier.padding(top = 6.dp), style = MaterialTheme.typography.bodyLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-                    HorizontalDivider(Modifier.padding(vertical = 14.dp), color = Color.White.copy(alpha = .16f))
-                    Text("What’s new", Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Column(Modifier.fillMaxWidth().heightIn(max = height * .40f).verticalScroll(rememberScrollState()).padding(top = 8.dp, bottom = 8.dp)) {
-                        Text(release.notes.ifBlank { "Performance improvements and fixes." }, style = MaterialTheme.typography.bodyMedium)
-                    }
-                    HorizontalDivider(color = Color.White.copy(alpha = .16f))
-                    UpdateReleaseActions(release, showNotes = false)
-                    TextButton(onClick = onRemindLater, modifier = Modifier.fillMaxWidth()) { Text("Remind me later") }
+                    Text("Hertix ${release.versionName} is available to download.", Modifier.padding(top = 7.dp), style = MaterialTheme.typography.bodyLarge, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+                HorizontalDivider(Modifier.padding(top = 18.dp, bottom = 14.dp), color = Color.White.copy(alpha = .18f))
+                Text("What’s new", Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = 10.dp, bottom = 12.dp)) {
+                    Text(readableReleaseNotes(release.notes), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                }
+                HorizontalDivider(color = Color.White.copy(alpha = .18f))
+                UpdateReleaseActions(release, showNotes = false)
+                HorizontalDivider(color = Color.White.copy(alpha = .14f))
+                TextButton(onClick = onRemindLater, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp)) {
+                    Text("Remind Me Later", style = MaterialTheme.typography.titleMedium)
                 }
             }
         }
     }
+}
+
+private fun readableReleaseNotes(raw: String): String {
+    val lines = raw.lineSequence()
+        .filterNot { it.contains("full changelog", ignoreCase = true) || it.trim().startsWith("https://github.com/", ignoreCase = true) }
+        .map { line ->
+            line.trim()
+                .replace(Regex("^#{1,6}\\s*"), "")
+                .replace(Regex("\\*\\*(.+?)\\*\\*"), "$1")
+                .replace(Regex("(?m)^[-*]\\s+"), "• ")
+        }
+        .filter(String::isNotBlank)
+        .toList()
+    return lines.joinToString("\n\n").ifBlank { "Release notes are not available." }
 }
 
 @Composable
@@ -113,6 +135,6 @@ private fun UpdateReleaseActions(release: YTHubRelease, showNotes: Boolean = tru
                         .onFailure { message = it.message ?: "Could not open Android's installer."; failed = true }
                 }
             }
-        }, modifier = Modifier.fillMaxWidth()) { Text(if (apk == null) "Download now" else "Install update") }
+        }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) { Text(if (apk == null) "Download Now" else "Install Update") }
     }
 }

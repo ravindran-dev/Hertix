@@ -174,7 +174,6 @@ private val Accent = MobileUi.accent
     }
     if (panel.isNotEmpty()) GlassSheet(onDismissRequest = { panel = "" }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
         Box(Modifier.fillMaxWidth()) {
-        if (panel == "Lyrics") ArtworkAtmosphere(track, Modifier.matchParentSize(), strong = true)
         when (panel) {
             "Queue" -> QueuePanel(onSave = { saveQueue = true }, onDownload = onDownload)
             "Lyrics" -> LyricsPanel(track)
@@ -323,24 +322,58 @@ private val Accent = MobileUi.accent
             .onFailure { lookupError = it.message ?: "Could not look up lyrics."; lookupState = "error" }
     }
     LaunchedEffect(active, auto) { if (auto && active >= 0 && !list.isScrollInProgress) list.animateScrollToItem(active) }
-    Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(16.dp)) {
-        Text("Lyrics", style = MaterialTheme.typography.headlineSmall)
-        if (lines.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState())) { TextButton(onClick = { auto = !auto }) { Text(if (auto) "Auto-scroll on" else "Auto-scroll off") }; TextButton(onClick = { auto = true; scope.launch { if (active >= 0) list.animateScrollToItem(active) } }) { Text("Current line") } }
-        if (lyrics.isBlank() && lookupState == "loading") {
-            LinearProgressIndicator(Modifier.fillMaxWidth())
-            Text("Searching lyrics providers for a matching track…", Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else if (lyrics.isBlank() && lookupState == "missing") {
-            MusicEmpty("No confident match yet", "We checked LRCLIB and additional lyrics catalogs. You can retry or import a lyrics file.")
-            TextButton(onClick = { lookupAttempt++ }) { Text("Search again") }
-        } else if (lyrics.isBlank() && lookupState == "error") {
-            Text(lookupError, Modifier.padding(vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
-            TextButton(onClick = { lookupAttempt++ }) { Text("Try again") }
-        } else if (lines.isEmpty()) Text(lyrics, Modifier.heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(vertical = 16.dp))
-        else LazyColumn(Modifier.heightIn(max = 400.dp), state = list, verticalArrangement = Arrangement.spacedBy(18.dp)) {
-            itemsIndexed(lines) { i, line -> Text(line.text, color = if (i == active) Accent else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleMedium, modifier = Modifier.fillMaxWidth().clickable { MusicPlayback.seek(line.timeMs) }.padding(8.dp)) }
+
+    Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 18.dp).padding(bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Box(Modifier.size(48.dp).clip(RoundedCornerShape(12.dp))) { TrackArtwork(track, Modifier.fillMaxSize()) }
+            Column(Modifier.weight(1f)) {
+                Text("Lyrics", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
+                Text(track.title, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                Text(track.artist, maxLines = 1, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
-        if (lyrics.isNotBlank() && lookupState == "available") Text("Lyrics provided by an online catalog or your local file", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        TextButton(onClick = { picker.launch(arrayOf("text/*", "application/octet-stream")) }) { Text("Import local lyrics") }
+        if (lines.isNotEmpty()) Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+            TextButton(onClick = { auto = !auto }) { Text(if (auto) "Auto-scroll on" else "Auto-scroll off") }
+            TextButton(onClick = { auto = true; scope.launch { if (active >= 0) list.animateScrollToItem(active) } }) { Text("Current line") }
+        }
+        if (lyrics.isBlank() && lookupState == "loading") {
+            GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), tintAlpha = .18f) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CircularProgressIndicator(Modifier.size(28.dp), strokeWidth = 2.dp)
+                    Text("Searching lyric catalogs…", style = MaterialTheme.typography.bodyLarge)
+                    Text("Checking Tamil and English sources for a matching recording.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        } else if (lyrics.isBlank() && lookupState == "missing") {
+            GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), tintAlpha = .18f) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 22.dp), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(9.dp)) {
+                    Icon(Icons.Rounded.Lyrics, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(30.dp))
+                    Text("Lyrics not found in the connected catalogs", style = MaterialTheme.typography.titleMedium, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text("You can search again or import a lyrics file for this song.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+            }
+        } else if (lyrics.isBlank() && lookupState == "error") {
+            GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), tintAlpha = .18f) {
+                Column(Modifier.fillMaxWidth().padding(18.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    Icon(Icons.Rounded.ErrorOutline, null, tint = MaterialTheme.colorScheme.error)
+                    Text(lookupError, Modifier.padding(top = 8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+            }
+        } else if (lines.isEmpty()) {
+            Text(lyrics, Modifier.fillMaxWidth().heightIn(max = 400.dp).verticalScroll(rememberScrollState()).padding(vertical = 12.dp), style = MaterialTheme.typography.titleMedium)
+        } else {
+            LazyColumn(Modifier.fillMaxWidth().heightIn(max = 440.dp), state = list, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                itemsIndexed(lines) { i, line ->
+                    Text(line.text, color = if (i == active) Accent else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.fillMaxWidth().clickable { MusicPlayback.seek(line.timeMs) }.padding(vertical = 6.dp))
+                }
+            }
+        }
+        if (lyrics.isNotBlank() && lookupState == "available") Text("Lyrics · online catalog or local file", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (lyrics.isBlank()) Button(onClick = { lookupAttempt++ }, enabled = lookupState != "loading", modifier = Modifier.weight(1f)) { Text("Search again") }
+            OutlinedButton(onClick = { picker.launch(arrayOf("text/*", "application/octet-stream")) }, modifier = Modifier.weight(1f)) { Text("Import lyrics") }
+        }
     }
 }
 @Composable private fun SleepPanel(onDone: () -> Unit) {

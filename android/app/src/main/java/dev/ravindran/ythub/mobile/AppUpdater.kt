@@ -30,7 +30,7 @@ internal sealed interface AppUpdateStatus {
 
 /** Checks public GitHub Releases and installs updates through Android's package installer. */
 internal object AppUpdater {
-    private const val releaseApi = "https://api.github.com/repos/ravindran-dev/YTHub/releases/latest"
+    private const val releaseApi = "https://api.github.com/repos/ravindran-dev/Hertix/releases/latest"
 
     suspend fun checkForUpdate(): AppUpdateStatus = withContext(Dispatchers.IO) {
         val connection = (URL(releaseApi).openConnection() as HttpURLConnection).apply {

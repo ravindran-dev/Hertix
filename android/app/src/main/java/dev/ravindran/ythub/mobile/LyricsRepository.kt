@@ -264,7 +264,12 @@ internal object LyricsRepository {
             val exactEnough = if (knownArtist(artist)) titleScore >= .7 && artistScore >= .35 else titleScore >= .96 && durationDelta <= 8.0
             if (!exactEnough || (duration != null && durationDelta.isFinite() && durationDelta > 20.0)) return@mapNotNull null
             val url = hit.optString("lyricsUrl")
-            if (!url.startsWith("https://lyrics-storage.binimum.org/")) return@mapNotNull null
+            val safeLyricsUrl = runCatching { URL(url) }.getOrNull()?.let { parsed ->
+                parsed.protocol == "https" && parsed.port == -1 &&
+                    ((parsed.host.equals("lrc.red", true) && parsed.path.startsWith("/s/") && parsed.path.endsWith(".ttml")) ||
+                        (parsed.host.equals("lyrics-storage.binimum.org", true) && parsed.path.endsWith(".ttml")))
+            } == true
+            if (!safeLyricsUrl) return@mapNotNull null
             (hit to (titleScore * .65 + artistScore * .35 + if (durationDelta.isFinite()) (1.0 - durationDelta.coerceAtMost(30.0) / 30.0) * .12 else 0.0))
         }.sortedByDescending { it.second }
         val selected = best.firstOrNull() ?: return@withContext null
@@ -368,8 +373,8 @@ internal object LyricsRepository {
             requestMethod = "GET"
             connectTimeout = 6_000
             readTimeout = 8_000
-            setRequestProperty("Accept", "application/json")
-            setRequestProperty("User-Agent", "Hertix-Android/${BuildConfig.VERSION_NAME} (https://github.com/ravindran-dev/YTHub)")
+            setRequestProperty("Accept", "application/json, application/ttml+xml, application/xml, text/plain;q=0.9, */*;q=0.5")
+            setRequestProperty("User-Agent", "Hertix-Android/${BuildConfig.VERSION_NAME} (https://github.com/ravindran-dev/Hertix)")
         }
         try {
             val status = connection.responseCode
