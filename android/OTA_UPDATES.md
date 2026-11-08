@@ -8,7 +8,12 @@ Hertix checks the latest stable release in the existing `ravindran-dev/Hertix` r
 2. Keep the existing Android application ID `dev.ravindran.ythub.mobile` and the signing certificate used by installed releases. This lets Android apply the update in place and preserve account/session data.
 3. Keep these GitHub Actions secrets configured: `YTHUB_RELEASE_KEYSTORE_BASE64`, `YTHUB_RELEASE_STORE_PASSWORD`, `YTHUB_RELEASE_KEY_ALIAS`, and `YTHUB_RELEASE_KEY_PASSWORD`.
 4. Also configure the public client settings `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. The release workflow fails before building if either is absent; without them, account and cloud-sync functionality is compiled out of the application configuration.
-5. Push a tag matching the version, such as `v1.0.19`. `.github/workflows/android-release.yml` builds and publishes a Hertix-named APK asset. The in-app checker reads the stable release API and selects the APK asset.
+5. Push a tag matching the version, such as `v1.0.20`. `.github/workflows/android-release.yml` builds and publishes a Hertix-named APK asset. The in-app checker reads the stable release API and selects the APK asset.
+
+## v1.0.20
+
+- Use the same translucent glass surface for confirmation dialogs, cloud file selection, update prompts, and contextual menus.
+- Keep glass popups translucent on older Android releases, and reduce the update dialog tint so the blurred page remains visible behind it.
 
 ## v1.0.19
 
@@ -29,7 +34,7 @@ Hertix checks the latest stable release in the existing `ravindran-dev/Hertix` r
 - YouTube Music discovery now uses the WEB_REMIX/Innertube search endpoint directly. It does not use the Google YouTube Data API quota bucket.
 - Regional-language search uses the device locale and region.
 - Lyrics matching now accepts SimpMusic's documented video-ID response fields, including rich synchronized and plain lyrics that omit title/artist metadata.
-- The update notice now uses a compact frosted card, readable release notes, and stacked download/remind actions.
+- The update notice uses a compact frosted card, readable release notes, and stacked download/remind actions.
 - Regional LRC matching accounts for the singer field returned by KuGou, so results with the provider's field naming are not discarded.
 - YouTube Music lyrics-tab lookup and the exact-video transcript fallback use Innertube, including regional-script lyrics returned for the video itself.
 - Replaced the Android launcher, splash and Hertix home wordmark assets with the newly supplied purple play H symbol and wordmark.

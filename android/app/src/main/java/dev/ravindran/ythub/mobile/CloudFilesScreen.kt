@@ -8,6 +8,9 @@ import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -31,6 +34,8 @@ fun CloudFilesSection() {
     var retry by remember { mutableStateOf<JsonObject?>(null) }
     var deleting by remember { mutableStateOf<JsonObject?>(null) }
     var message by remember { mutableStateOf("") }
+    val popoverHost=LocalGlassPopoverHost.current
+    var chooserBounds by remember { mutableStateOf(Rect.Zero) }
     suspend fun refresh() {try {files=CloudMedia.files();usage=CloudMedia.usage()} catch(_:Exception){message="Cloud files could not be loaded. Retry when connected."}}
     LaunchedEffect(transfer.busy) {if(!transfer.busy)refresh()}
     HorizontalDivider()
@@ -38,8 +43,13 @@ fun CloudFilesSection() {
     usage?.let {Text("${it.get("used_bytes").asLong/1048576} MB reserved or stored / ${it.get("quota_bytes").asLong/1048576} MB")}
     Text("Upload only music you own or are authorized to store. Local files remain on this phone when you delete a cloud copy.",style=MaterialTheme.typography.bodySmall)
     Box {
-        OutlinedButton(onClick={menu=true},enabled=!transfer.busy) {Text(music.tracks.find {it.id==selected}?.title ?: "Choose a local song")}
-        DropdownMenu(expanded=menu,onDismissRequest={menu=false}) {music.tracks.filter {it.available && !it.uri.startsWith("cloud://")}.forEach {track -> DropdownMenuItem(text={Text(track.title,maxLines=1)},onClick={selected=track.id;menu=false})}}
+        OutlinedButton(onClick={if(!chooserBounds.isEmpty)popoverHost?.recordTrigger(chooserBounds);menu=true},enabled=!transfer.busy,
+            modifier=Modifier.onGloballyPositioned { chooserBounds=it.boundsInRoot() }) {Text(music.tracks.find {it.id==selected}?.title ?: "Choose a local song")}
+        if(menu) GlassActionPopover("Choose a local song",{menu=false},panelWidth=300.dp) {
+            music.tracks.filter {it.available && !it.uri.startsWith("cloud://")}.forEach {track ->
+                GlassMenuItem(text={Text(track.title,maxLines=1)},onClick={selected=track.id;menu=false})
+            }
+        }
     }
     Row {Checkbox(allowed,{allowed=it});Text("I’m authorized to store this audio.",Modifier.padding(top=12.dp))}
     Button(onClick={music.tracks.find {it.id==selected}?.let {CloudMedia.upload(context.applicationContext,it,retry)}},enabled=allowed&&selected!=null&&!transfer.busy){Text(if(retry==null) "Upload selected song" else "Retry selected upload")}
@@ -57,7 +67,7 @@ fun CloudFilesSection() {
     }
     TextButton(onClick={scope.launch {refresh()}},enabled=!transfer.busy){Text("Refresh files")}
     if(message.isNotBlank())Text(message)
-    deleting?.let {record -> AlertDialog(onDismissRequest={deleting=null},title={Text("Delete cloud copy?")},text={Text("This removes the private cloud file. Files already downloaded on this or other devices remain available.")},confirmButton={TextButton(onClick={deleting=null;scope.launch {try {CloudMedia.action("delete",record.get("id").asString);refresh()}catch(_:Exception){message="Deletion did not complete. Retry when connected."}}}){Text("Delete cloud copy")}},dismissButton={TextButton(onClick={deleting=null}){Text("Cancel")}})}
+    deleting?.let {record -> GlassConfirmDialog(onDismissRequest={deleting=null},title={Text("Delete cloud copy?")},text={Text("This removes the private cloud file. Files already downloaded on this or other devices remain available.")},confirmButton={TextButton(onClick={deleting=null;scope.launch {try {CloudMedia.action("delete",record.get("id").asString);refresh()}catch(_:Exception){message="Deletion did not complete. Retry when connected."}}}){Text("Delete cloud copy")}},dismissButton={TextButton(onClick={deleting=null}){Text("Cancel")}})}
 }
 
 @Composable

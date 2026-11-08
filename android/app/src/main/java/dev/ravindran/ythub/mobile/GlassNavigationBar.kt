@@ -127,7 +127,8 @@ internal fun GlassControlSurface(modifier: Modifier = Modifier, dark: Boolean = 
         .onGloballyPositioned { origin.value = if (screenPosition) it.positionOnScreen() else it.positionInRoot() }) {
         if(!useReference) Box(Modifier.matchParentSize()) {
             if(glassLayer!=null)GlassBackdrop(glassLayer,if(backdrop!=null)contentOrigin else Offset.Zero,origin,magnification=1f)
-            Box(Modifier.matchParentSize().background(fill.copy(alpha=if(Build.VERSION.SDK_INT>=31)tintAlpha ?: .20f else .9f)))
+            // Use the same restrained translucent tint on older Android releases as well.
+            Box(Modifier.matchParentSize().background(fill.copy(alpha=(tintAlpha ?: .20f).coerceIn(.12f, .48f))))
         }
         Box(Modifier.matchParentSize().drawBehind { drawRect(highlightColor.copy(alpha = highlight)) })
         CompositionLocalProvider(LocalGlassInteraction provides if (flexible) interaction else null) { content() }

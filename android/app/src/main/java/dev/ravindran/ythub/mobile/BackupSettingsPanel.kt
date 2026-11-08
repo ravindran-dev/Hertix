@@ -48,7 +48,7 @@ internal fun BackupSettingsPanel(onOnline:()->Unit) {
     if(progress.busy) LinearProgressIndicator(progress={progress.percent/100f},modifier=Modifier.fillMaxWidth())
     AccountActionButton("Open Online library", Icons.Outlined.Cloud, onOnline, subtitle="Browse files saved to your account")
     if(message.isNotBlank())Text(message)
-    if(editing)AlertDialog(onDismissRequest={editing=false},title={Text("Allow cloud backup?")},text={Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+    if(editing)GlassConfirmDialog(onDismissRequest={editing=false},title={Text("Allow cloud backup?")},text={Column(Modifier.heightIn(max=440.dp).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
         Row {Checkbox(data,{data=it},Modifier.testTag("backup-consent-data"));Column {Text("Library data");Text("Playlists, favorites and song details",style=MaterialTheme.typography.bodySmall)}}
         Row {Checkbox(music,{music=it},Modifier.testTag("backup-consent-music"));Column {Text("Music files");Text("Upload local audio; uses storage and data. Cloud size and format limits apply.",style=MaterialTheme.typography.bodySmall)}}
         Row {Checkbox(automatic,{automatic=it},Modifier.testTag("backup-consent-auto"));Text("Automatically back up changes")}

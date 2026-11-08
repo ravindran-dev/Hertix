@@ -83,7 +83,7 @@ fun AccountScreen(onCloudLibrary: () -> Unit = {}, onSettings: () -> Unit = {}, 
             AccountModule("About", "Version and diagnostics", Icons.Outlined.Info) {
                 AccountActionButton("About Hertix", Icons.Outlined.Info, onAbout, subtitle = "Version ${BuildConfig.VERSION_NAME}", forward = true)
             }
-            if(deleting) AlertDialog(onDismissRequest={if(!busy)deleting=false},title={Text("Permanently delete account?")},text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
+            if(deleting) GlassConfirmDialog(onDismissRequest={if(!busy)deleting=false},title={Text("Permanently delete account?")},text={Column(verticalArrangement=Arrangement.spacedBy(12.dp)) {
                 Text("Your cloud files, playlists and metadata will be deleted. Local downloaded files remain. This cannot be undone.")
                 OutlinedTextField(confirmation,{confirmation=it},label={Text("Type DELETE MY ACCOUNT")})
                 OutlinedTextField(password,{password=it},label={Text("Current password")},visualTransformation=PasswordVisualTransformation())
@@ -115,7 +115,7 @@ fun AccountScreen(onCloudLibrary: () -> Unit = {}, onSettings: () -> Unit = {}, 
         }
         if(message.isNotBlank()) Text(message,color=MaterialTheme.colorScheme.primary)
         if(account.message.isNotBlank()) Text(account.message)
-        if(editingProfile) AlertDialog(onDismissRequest={if(!busy)editingProfile=false},title={Text("Edit profile")},text={OutlinedTextField(profileName,{profileName=it.take(100)},label={Text("Display name")},singleLine=true)},confirmButton={TextButton(enabled=!busy&&profileName.isNotBlank(),onClick={action {CloudAccount.updateDisplayName(profileName);editingProfile=false;message="Profile updated"}}){Text(if(busy)"Saving…" else "Save")}},dismissButton={TextButton(enabled=!busy,onClick={editingProfile=false}){Text("Cancel")}})
+        if(editingProfile) GlassConfirmDialog(onDismissRequest={if(!busy)editingProfile=false},title={Text("Edit profile")},text={OutlinedTextField(profileName,{profileName=it.take(100)},label={Text("Display name")},singleLine=true)},confirmButton={TextButton(enabled=!busy&&profileName.isNotBlank(),onClick={action {CloudAccount.updateDisplayName(profileName);editingProfile=false;message="Profile updated"}}){Text(if(busy)"Saving…" else "Save")}},dismissButton={TextButton(enabled=!busy,onClick={editingProfile=false}){Text("Cancel")}})
         Spacer(Modifier.height(LocalMusicBottomPadding.current + 20.dp))
     }
     }

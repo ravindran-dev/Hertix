@@ -29,7 +29,7 @@ internal fun AboutScreen(onDiagnostics: () -> Unit = {}, onBack: () -> Unit = {}
             }
         }
     }
-    if (showingLicenses) AlertDialog(onDismissRequest = { showingLicenses = false }, title = { Text("Open-source notices") },
+    if (showingLicenses) GlassConfirmDialog(onDismissRequest = { showingLicenses = false }, title = { Text("Open-source notices") },
         text = { Text("Hertix Android is released under the GPL-3.0 License. Third-party dependency notices are included with the Hertix source distribution.") },
         confirmButton = { TextButton(onClick = { showingLicenses = false }) { Text("Done") } })
 }

@@ -75,7 +75,7 @@ internal fun AppUpdateAvailableDialog(release: YTHubRelease, onRemindLater: () -
             backdrop = LocalGlassScene.current?.layer ?: LocalAtmosphereLayer.current,
             contentOrigin = LocalGlassScene.current?.origin ?: Offset.Zero,
             radius = 24.dp,
-            tintAlpha = .32f,
+            tintAlpha = .18f,
             animateOnTouch = false
         ) {
             Column(Modifier.fillMaxWidth().heightIn(max = panelMaxHeight).padding(horizontal = 18.dp, vertical = 15.dp)) {
