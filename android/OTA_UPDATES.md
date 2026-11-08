@@ -16,6 +16,8 @@ Hertix checks the latest stable release in the existing `ravindran-dev/Hertix` r
 - Show Tamil lyrics in Tanglish by default, with a toggle to read the original Tamil script.
 - Refine the update popup with a compact frosted layout, scrollable release notes, and stacked Download / Remind actions.
 - Improve YouTube downloads with concurrent fragment fetching, chunked HTTP transfers, and stronger network/fragment retry handling.
+- Match the player menu's glass backdrop to the home menu, enlarge the home wordmark, and balance avatar/menu spacing.
+- Keep Tanglish conversion available on Android 8–9 with a built-in Tamil transliteration fallback.
 
 ## v1.0.17
 
