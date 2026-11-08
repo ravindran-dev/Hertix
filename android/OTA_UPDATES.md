@@ -8,7 +8,12 @@ Hertix checks the latest stable release in the existing `ravindran-dev/Hertix` r
 2. Keep the existing Android application ID `dev.ravindran.ythub.mobile` and the signing certificate used by installed releases. This lets Android apply the update in place and preserve account/session data.
 3. Keep these GitHub Actions secrets configured: `YTHUB_RELEASE_KEYSTORE_BASE64`, `YTHUB_RELEASE_STORE_PASSWORD`, `YTHUB_RELEASE_KEY_ALIAS`, and `YTHUB_RELEASE_KEY_PASSWORD`.
 4. Also configure the public client settings `SUPABASE_URL` and `SUPABASE_PUBLISHABLE_KEY`. The release workflow fails before building if either is absent; without them, account and cloud-sync functionality is compiled out of the application configuration.
-5. Push a tag matching the version, such as `v1.0.18`. `.github/workflows/android-release.yml` builds and publishes a Hertix-named APK asset. The in-app checker reads the stable release API and selects the APK asset.
+5. Push a tag matching the version, such as `v1.0.19`. `.github/workflows/android-release.yml` builds and publishes a Hertix-named APK asset. The in-app checker reads the stable release API and selects the APK asset.
+
+## v1.0.19
+
+- Restore YouTube Music lyrics for local/imported tracks that no longer retain their original video link by searching for a matching song and checking title, artist, and duration before using its lyrics.
+- Keep Tanglish as the default display for Tamil lyrics, with the original Tamil-script toggle.
 
 ## v1.0.18
 

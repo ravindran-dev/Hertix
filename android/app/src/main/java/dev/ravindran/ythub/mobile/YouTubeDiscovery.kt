@@ -10,7 +10,15 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Locale
 
-internal data class YouTubeResult(val id: String, val type: String, val title: String, val channel: String, val thumbnail: String, val url: String)
+internal data class YouTubeResult(
+    val id: String,
+    val type: String,
+    val title: String,
+    val channel: String,
+    val thumbnail: String,
+    val url: String,
+    val durationSeconds: Long = 0
+)
 
 /** YouTube Music WEB_REMIX discovery; this path uses no Data API key/quota. */
 internal suspend fun searchYouTube(query: String, type: String = "all"): List<YouTubeResult> = withContext(Dispatchers.IO) {
@@ -96,7 +104,12 @@ private fun parseYouTubeMusicResults(root: JSONObject, requestedType: String): L
             "channel" -> "https://music.youtube.com/channel/$id"
             else -> "https://music.youtube.com/watch?v=$id"
         }
-        YouTubeResult(id, resultType, title, channel, thumbnail, url)
+        val durationSeconds = texts.firstNotNullOfOrNull { text ->
+            Regex("(?:^|[·•])\\s*(\\d{1,2}):(\\d{2})\\s*$").find(text)?.let { match ->
+                match.groupValues[1].toLong() * 60 + match.groupValues[2].toLong()
+            }
+        } ?: 0
+        YouTubeResult(id, resultType, title, channel, thumbnail, url, durationSeconds)
     }
 }
 

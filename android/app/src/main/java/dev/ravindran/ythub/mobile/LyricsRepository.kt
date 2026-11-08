@@ -69,8 +69,21 @@ internal object LyricsRepository {
         val videoUrl = track.downloadId?.let { id ->
             DownloadStore.items.value.firstOrNull { it.id == id }?.media?.url
         }.orEmpty()
+        var lyricsSourceUrl = videoUrl
         if (videoUrl.isNotBlank()) {
             val youtubeMusic = runCatching { YouTubeInnertubeLyrics.lyrics(videoUrl) }
+                .onFailure { providerFailure = it as? Exception }.getOrNull()
+            if (!youtubeMusic.isNullOrBlank()) return@withContext cache(key, youtubeMusic)
+        }
+
+        // Imported and rescanned local files can lose the download-to-video link.
+        // Search YouTube Music as a fallback, then require a close title, artist,
+        // and duration match before trusting that video's lyric tab.
+        val searchedSource = runCatching { findYouTubeMusicSource(title, artist, duration) }
+            .onFailure { providerFailure = it as? Exception }.getOrNull()
+        if (searchedSource != null) {
+            lyricsSourceUrl = searchedSource.url
+            val youtubeMusic = runCatching { YouTubeInnertubeLyrics.lyrics(searchedSource.url) }
                 .onFailure { providerFailure = it as? Exception }.getOrNull()
             if (!youtubeMusic.isNullOrBlank()) return@withContext cache(key, youtubeMusic)
         }
@@ -141,8 +154,8 @@ internal object LyricsRepository {
 
         // Captions are a final exact-video fallback. They remain
         // lower priority than lyrics catalogs to avoid replacing authored lyrics.
-        if (videoUrl.isNotBlank()) {
-            val transcript = runCatching { YouTubeInnertubeLyrics.transcript(videoUrl) }
+        if (lyricsSourceUrl.isNotBlank()) {
+            val transcript = runCatching { YouTubeInnertubeLyrics.transcript(lyricsSourceUrl) }
                 .onFailure { providerFailure = it as? Exception }.getOrNull()
             if (!transcript.isNullOrBlank()) return@withContext cache(key, transcript)
         }
@@ -150,6 +163,43 @@ internal object LyricsRepository {
         providerFailure?.let { throw IllegalStateException("Lyrics providers could not be reached. Try again later.", it) }
 
         cache(key, null)
+    }
+
+    private suspend fun findYouTubeMusicSource(title: String, artist: String, duration: Long?): YouTubeResult? {
+        val cleanTitle = stripDecorations(title).take(100)
+        if (cleanTitle.length < 2) return null
+        val cleanArtist = artist.takeIf(::knownArtist).orEmpty().take(80)
+        val queries = listOf("$cleanTitle $cleanArtist".trim(), cleanTitle).distinct()
+        val titleTokens = tokens(Tanglish.convert(cleanTitle))
+        val artistTokens = tokens(Tanglish.convert(cleanArtist))
+        for (query in queries) {
+            val results = runCatching { searchYouTube(query, "songs") }.getOrNull().orEmpty()
+            val ranked = results.asSequence()
+                .filter { it.type == "video" }
+                .mapNotNull { result ->
+                    val candidateTitle = tokens(Tanglish.convert(stripDecorations(result.title)))
+                    val titleScore = tokenScore(titleTokens, candidateTitle)
+                    val candidateArtist = tokens(Tanglish.convert(result.channel))
+                    val artistRecall = if (artistTokens.isEmpty()) 0.0 else
+                        artistTokens.intersect(candidateArtist).size.toDouble() / artistTokens.size
+                    val delta = if (duration != null && result.durationSeconds > 0)
+                        kotlin.math.abs(result.durationSeconds - duration) else Long.MAX_VALUE
+                    val titleThreshold = if (artistTokens.isEmpty()) .92 else .72
+                    if (titleScore < titleThreshold || (artistTokens.isNotEmpty() && artistRecall < .34) ||
+                        (duration != null && result.durationSeconds > 0 && delta > 45)) null
+                    else {
+                        val durationBonus = if (delta != Long.MAX_VALUE) (1.0 - delta.coerceAtMost(45) / 45.0) * .12 else 0.0
+                        result to (titleScore * .72 + artistRecall * .20 + durationBonus)
+                    }
+                }
+                .sortedByDescending { it.second }
+                .toList()
+            val best = ranked.firstOrNull() ?: continue
+            val runnerUp = ranked.getOrNull(1)
+            if (runnerUp != null && best.second - runnerUp.second < .035) continue
+            return best.first
+        }
+        return null
     }
 
     private sealed interface LookupResult {
