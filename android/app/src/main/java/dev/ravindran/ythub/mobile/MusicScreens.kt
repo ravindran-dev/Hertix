@@ -17,9 +17,11 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -659,21 +661,25 @@ private fun youtubeSearchErrorMessage(raw: String?): String {
     var deleting by remember { mutableStateOf(false) }
     BackHandler(section != "Actions") { section = "Actions" }
     GlassSheet(onDismissRequest = { if (section != "Actions") section = "Actions" else onDismiss() }, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
-        Column(Modifier.fillMaxWidth().heightIn(max = 580.dp).navigationBarsPadding().padding(horizontal = 16.dp)) {
-            Row(Modifier.fillMaxWidth().padding(bottom = 12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().heightIn(max = (LocalConfiguration.current.screenHeightDp * .78f).dp).navigationBarsPadding().imePadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), tintAlpha = .17f) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 if (section != "Actions") IconButton(onClick = { section = "Actions" }) { Icon(Icons.Rounded.ArrowBack, "Back to track actions") }
-                else TrackArtwork(track, Modifier.size(48.dp))
+                else TrackArtwork(track, Modifier.size(54.dp).clip(RoundedCornerShape(14.dp)))
                 Column(Modifier.weight(1f)) {
                     Text(if (section == "Actions") track.title else section, style = MaterialTheme.typography.titleMedium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                     Text(if (section == "Actions") track.artist else track.title, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                IconButton(onClick = onDismiss) { Icon(Icons.Rounded.Close, "Close track actions", Modifier.size(20.dp)) }
+                Box(Modifier.size(38.dp).clip(CircleShape).background(MaterialTheme.colorScheme.onSurface.copy(alpha = .07f)), contentAlignment = Alignment.Center) {
+                    IconButton(onClick = onDismiss, modifier = Modifier.size(38.dp)) { Icon(Icons.Rounded.Close, "Close track actions", Modifier.size(19.dp)) }
+                }
             }
-            AnimatedContent(section, modifier = Modifier.weight(1f, fill = false), transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(100)) }, label = "Track action page") { page ->
-                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 12.dp)) {
+            }
+            AnimatedContent(section, modifier = Modifier.weight(1f, fill = false).fillMaxWidth(), transitionSpec = { fadeIn(tween(150)) togetherWith fadeOut(tween(100)) }, label = "Track action page") { page ->
+                Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState()).padding(bottom = 8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     if (page == "Actions") {
-                        Surface(shape = MobileUi.card, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .045f)) {
-                            Column {
+                        GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), tintAlpha = .20f) {
+                            Column(Modifier.padding(5.dp)) {
                                 if (playback.track?.id != track.id) MusicActionRow("Play now", Icons.Rounded.PlayArrow, { MusicPlayback.play(listOf(track.id)); onDismiss() }, enabled = track.available)
                                 MusicActionRow("Play next", Icons.Rounded.PlaylistPlay, { MusicPlayback.enqueue(listOf(track.id), true); onDismiss() }, enabled = track.available)
                                 MusicActionRow("Add to queue", Icons.Rounded.QueueMusic, { MusicPlayback.enqueue(listOf(track.id)); onDismiss() }, enabled = track.available)
@@ -682,9 +688,8 @@ private fun youtubeSearchErrorMessage(raw: String?): String {
                             }
                         }
                         if (extraActions.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            Surface(shape = MobileUi.card, color = MaterialTheme.colorScheme.onSurface.copy(alpha = .045f)) {
-                                Column { extraActions.forEach { (label, action) -> MusicActionRow(label, when {
+                            GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), tintAlpha = .16f) {
+                                Column(Modifier.padding(5.dp)) { extraActions.forEach { (label, action) -> MusicActionRow(label, when {
                                     label == "Lyrics" -> Icons.Rounded.Lyrics
                                     label == "Sleep timer" -> Icons.Rounded.Schedule
                                     label == "Audio output" -> Icons.Rounded.DevicesOther
@@ -695,21 +700,32 @@ private fun youtubeSearchErrorMessage(raw: String?): String {
                                 }, action) } }
                             }
                         }
-                        Spacer(Modifier.height(8.dp))
-                        MusicActionRow("Track information", Icons.Rounded.Info, { section = "Track information" }, forward = true)
-                        if (track.downloadId != null && downloads.any { it.id == track.downloadId }) MusicActionRow("Open download details", Icons.Rounded.Download, { onDownload(track.downloadId); onDismiss() }, forward = true)
-                        MusicActionRow("Manage file", Icons.Rounded.FolderOpen, { section = "Manage file" }, forward = true)
+                        GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), tintAlpha = .12f) {
+                            Column(Modifier.padding(5.dp)) {
+                                MusicActionRow("Track information", Icons.Rounded.Info, { section = "Track information" }, forward = true)
+                                if (track.downloadId != null && downloads.any { it.id == track.downloadId }) MusicActionRow("Open download details", Icons.Rounded.Download, { onDownload(track.downloadId); onDismiss() }, forward = true)
+                                MusicActionRow("Manage file", Icons.Rounded.FolderOpen, { section = "Manage file" }, forward = true)
+                            }
+                        }
                     } else if (page == "Manage file") {
-                        MusicActionRow("Open file location", Icons.Rounded.FolderOpen, { runCatching { context.startActivity(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).putExtra("android.provider.extra.INITIAL_URI", Uri.parse(track.uri))) }.onFailure { MusicRepository.message.value = it.message }; onDismiss() })
-                        MusicActionRow("Remove from library", Icons.Rounded.LibraryMusic, { MusicRepository.remove(setOf(track.id)); onDismiss() }, subtitle = "Keep the audio file on your phone")
-                        HorizontalDivider(Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = .3f))
-                        MusicActionRow("Delete audio file…", Icons.Rounded.DeleteOutline, { deleting = true }, subtitle = "Permanently delete the source file", destructive = true)
+                        GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), tintAlpha = .18f) {
+                            Column(Modifier.padding(5.dp)) {
+                                MusicActionRow("Open file location", Icons.Rounded.FolderOpen, { runCatching { context.startActivity(Intent(Intent.ACTION_OPEN_DOCUMENT_TREE).putExtra("android.provider.extra.INITIAL_URI", Uri.parse(track.uri))) }.onFailure { MusicRepository.message.value = it.message }; onDismiss() })
+                                MusicActionRow("Remove from library", Icons.Rounded.LibraryMusic, { MusicRepository.remove(setOf(track.id)); onDismiss() }, subtitle = "Keep the audio file on your phone")
+                                HorizontalDivider(Modifier.padding(horizontal = 12.dp, vertical = 5.dp), color = MaterialTheme.colorScheme.outline.copy(alpha = .22f))
+                                MusicActionRow("Delete audio file…", Icons.Rounded.DeleteOutline, { deleting = true }, subtitle = "Permanently delete the source file", destructive = true)
+                            }
+                        }
                     } else {
-                        listOf("Title" to track.title, "Artist" to track.artist, "Album" to track.album, "File" to track.filename,
-                            "Audio" to "${track.format} · ${if (track.bitrate > 0) "${track.bitrate / 1000} kbps" else "Bitrate unavailable"} · ${bytesLabel(track.bytes)}", "Location" to track.uri).forEach { (label, value) ->
-                            if (value.isNotBlank()) Column(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp)) {
-                                Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                androidx.compose.foundation.text.selection.SelectionContainer { Text(value, style = MaterialTheme.typography.bodyMedium) }
+                        GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), tintAlpha = .16f) {
+                            Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                listOf("Title" to track.title, "Artist" to track.artist, "Album" to track.album, "File" to track.filename,
+                                    "Audio" to "${track.format} · ${if (track.bitrate > 0) "${track.bitrate / 1000} kbps" else "Bitrate unavailable"} · ${bytesLabel(track.bytes)}", "Location" to track.uri).forEach { (label, value) ->
+                                    if (value.isNotBlank()) Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                        Text(label, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        androidx.compose.foundation.text.selection.SelectionContainer { Text(value, style = MaterialTheme.typography.bodyMedium) }
+                                    }
+                                }
                             }
                         }
                     }
