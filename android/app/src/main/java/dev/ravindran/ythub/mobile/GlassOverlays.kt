@@ -76,7 +76,7 @@ internal fun GlassMenuItem(text: @Composable () -> Unit, onClick: () -> Unit) {
 }
 
 @Composable
-private fun GlassWindowBlur() {
+internal fun GlassWindowBlur() {
     val view = LocalView.current
     DisposableEffect(view) {
         var parent: android.view.ViewParent? = view.parent
@@ -88,7 +88,7 @@ private fun GlassWindowBlur() {
         val window = provider?.window
         if (Build.VERSION.SDK_INT >= 31 && window != null) {
             window.addFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)
-            window.attributes = window.attributes.apply { blurBehindRadius = 16 }
+            window.attributes = window.attributes.apply { blurBehindRadius = 32 }
         }
         onDispose {
             if (Build.VERSION.SDK_INT >= 31) window?.clearFlags(WindowManager.LayoutParams.FLAG_BLUR_BEHIND)

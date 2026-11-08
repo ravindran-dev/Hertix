@@ -4,6 +4,7 @@ import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material.icons.rounded.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -48,6 +49,7 @@ internal object MobileMotion {
         Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
             val icon = when (status) {
                 "Completed" -> Icons.Rounded.CheckCircle
+                "Deleted locally" -> Icons.Filled.DeleteOutline
                 "Failed", "Cancelled" -> Icons.Rounded.ErrorOutline
                 "Paused", "Interrupted" -> Icons.Rounded.PauseCircleOutline
                 "Processing", "Exporting", "Zipping" -> Icons.Rounded.AutoFixHigh

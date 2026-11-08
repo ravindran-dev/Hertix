@@ -274,6 +274,45 @@ object DownloadStore {
             _items.value = _items.value.filterNot { it.id == id }; persist()
         }
     }
+    fun deleteLocalCopy(id: String) {
+        val item = synchronized(lock) {
+            _items.value.firstOrNull { it.id == id } ?: error("Download history entry was not found.")
+        }
+        require(item.terminal) { "Stop this download before deleting files from storage." }
+        val uris = (item.uris + listOfNotNull(item.zipUri.takeIf { it.isNotBlank() })).distinct()
+        require(uris.isNotEmpty()) { "This download has no local files to delete." }
+        val remaining = mutableSetOf<String>()
+        uris.forEach { raw ->
+            try {
+                val uri = Uri.parse(raw)
+                require(uri.scheme == "content" && uri.authority == "media" && "downloads" in uri.pathSegments) {
+                    "This item is not a Hertix Downloads file."
+                }
+                val deleted = context.contentResolver.delete(uri, null, null)
+                if (deleted == 0) {
+                    val stillExists = runCatching { context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { true } ?: false }.getOrDefault(false)
+                    if (stillExists) remaining += raw
+                }
+            } catch (_: Exception) { remaining += raw }
+        }
+        synchronized(lock) {
+            val current = _items.value.firstOrNull { it.id == id } ?: error("Download history entry was not found.")
+            val keptUris = current.uris.filter { it in remaining }
+            val keptZip = current.zipUri.takeIf { it in remaining }.orEmpty()
+            _items.value = _items.value.map { candidate ->
+                if (candidate.id == id) candidate.copy(
+                    uris = keptUris,
+                    zipUri = keptZip,
+                    localCopyDeleted = remaining.isEmpty(),
+                    bytes = if (remaining.isEmpty()) 0L else candidate.bytes,
+                    line = if (remaining.isEmpty()) "Local copy deleted" else "Some local files could not be deleted",
+                    error = if (remaining.isEmpty()) "" else "Retry deleting the remaining local files."
+                ) else candidate
+            }
+            persist()
+        }
+        check(remaining.isEmpty()) { "Some local files could not be deleted. Try again." }
+    }
     private fun current(id: String) = _items.value.first { it.id == id }
     private fun checkRunning(id: String) { if (current(id).state in listOf("Paused", "Cancelled")) throw CancellationException() }
     private suspend fun perform(item: DownloadItem) {

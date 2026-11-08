@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -63,12 +64,17 @@ internal fun AppUpdateCheckerScreen() {
 internal fun AppUpdateAvailableDialog(release: YTHubRelease, onRemindLater: () -> Unit) {
     val height = LocalConfiguration.current.screenHeightDp.dp
     val width = LocalConfiguration.current.screenWidthDp.dp
+    val notes = remember(release.notes) { readableReleaseNotes(release.notes) }
+    val hasNotes = notes != "Release notes are not available."
     Dialog(onDismissRequest = onRemindLater, properties = DialogProperties(usePlatformDefaultWidth = false)) {
-        val panelHeight = (height * .76f).coerceIn(440.dp, 680.dp).coerceAtMost(height - 32.dp)
+        GlassWindowBlur()
+        val panelHeight = (height * if (hasNotes) .76f else .58f).coerceIn(if (hasNotes) 440.dp else 390.dp, if (hasNotes) 680.dp else 520.dp).coerceAtMost(height - 32.dp)
         LiquidGlassPanel(
             Modifier.width(minOf(width - 40.dp, 460.dp)).height(panelHeight).clip(RoundedCornerShape(34.dp)),
+            backdrop = LocalGlassScene.current?.layer ?: LocalAtmosphereLayer.current,
+            contentOrigin = LocalGlassScene.current?.origin ?: Offset.Zero,
             radius = 34.dp,
-            tintAlpha = .14f,
+            tintAlpha = .11f,
             animateOnTouch = false
         ) {
             Column(Modifier.fillMaxSize().padding(horizontal = 22.dp, vertical = 18.dp)) {
@@ -78,8 +84,10 @@ internal fun AppUpdateAvailableDialog(release: YTHubRelease, onRemindLater: () -
                 }
                 HorizontalDivider(Modifier.padding(top = 18.dp, bottom = 14.dp), color = Color.White.copy(alpha = .18f))
                 Text("What’s new", Modifier.fillMaxWidth(), style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = 10.dp, bottom = 12.dp)) {
-                    Text(readableReleaseNotes(release.notes), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                if (hasNotes) Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(top = 10.dp, bottom = 12.dp)) {
+                    Text(notes, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+                } else Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.TopStart) {
+                    Text(notes, Modifier.padding(top = 12.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 HorizontalDivider(color = Color.White.copy(alpha = .18f))
                 UpdateReleaseActions(release, showNotes = false)

@@ -381,6 +381,11 @@ class MainActivity : ComponentActivity() {
                             )
                             "media" -> media?.let { MediaScreen(it, audio, { audio = it; quality = if (it) preferences.audioQuality else preferences.videoQuality }, quality, { qualitySheet = true }, preferences, ::startDownload, saveDownloadedPlaylist, { saveDownloadedPlaylist = it }, downloadedPlaylistName, { downloadedPlaylistName = it }) }
                             "Downloads" -> DownloadsScreen(jobs, { detail = it }, { id -> act { DownloadStore.pause(id) } }, { id -> act { DownloadStore.resume(id) } }, { confirmCancel = it }, { page = "Home" },
+                                onDeleteLocal = { id -> scope.launch {
+                                    runCatching { withContext(Dispatchers.IO) { DownloadStore.deleteLocalCopy(id) } }
+                                        .onSuccess { notice = "Local copy deleted. Download history was kept." }
+                                        .onFailure { error = it.message ?: "Could not delete local files." }
+                                } },
                                 onPlay = { MusicPlayback.downloadToPlay.value = it }, onAdd = { id -> scope.launch {
                                     runCatching { MusicRepository.downloadedTracks(id) }.onSuccess { notice = if (it.isEmpty()) "No accessible audio files found" else "Added to your music library" }.onFailure { error = it.message }
                                 } })
@@ -398,6 +403,11 @@ class MainActivity : ComponentActivity() {
                             "History" -> HistoryScreen(jobs, { detail = it }, { page = "Home" })
                             "detail" -> jobs.find { it.id == detail }?.let { item -> DownloadDetail(item,
                                 onPause = { act { DownloadStore.pause(item.id) } }, onResume = { act { DownloadStore.resume(item.id) } }, onCancel = { confirmCancel = item.id },
+                                onDeleteLocal = { scope.launch {
+                                    runCatching { withContext(Dispatchers.IO) { DownloadStore.deleteLocalCopy(item.id) } }
+                                        .onSuccess { notice = "Local copy deleted. Download history was kept." }
+                                        .onFailure { error = it.message ?: "Could not delete local files." }
+                                } },
                                 onCopy = { copyText(context, item.media.url); notice = "URL copied" },
                                 onOpen = { if (item.audio && item.state == "Completed") scope.launch {
                                     val ids = runCatching { MusicRepository.downloadedTracks(item.id) }.getOrDefault(emptyList())
@@ -542,9 +552,24 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun DownloadsScreen(jobs: List<DownloadItem>, onDetail: (String) -> Unit, onPause: (String) -> Unit, onResume: (String) -> Unit, onCancel: (String) -> Unit, onHome: () -> Unit, onPlay: (String) -> Unit, onAdd: (String) -> Unit) {
+@Composable private fun DownloadsScreen(jobs: List<DownloadItem>, onDetail: (String) -> Unit, onPause: (String) -> Unit, onResume: (String) -> Unit, onCancel: (String) -> Unit, onHome: () -> Unit, onPlay: (String) -> Unit, onAdd: (String) -> Unit, onDeleteLocal: (String) -> Unit) {
     val music by MusicRepository.state.collectAsStateWithLifecycle()
     var filter by rememberSaveable { mutableStateOf("Completed") }
+    var previousStates by remember { mutableStateOf<Map<String, String>?>(null) }
+    LaunchedEffect(jobs) {
+        val old = previousStates
+        if (old != null) {
+            val changed = jobs.filter { item ->
+                val before = old[item.id]
+                before != null && before != item.state && before !in listOf("Completed", "Failed", "Cancelled") && item.state in listOf("Completed", "Failed")
+            }.maxByOrNull { it.created }
+            if (changed != null && filter == "Active") filter = if (changed.state == "Completed") "Completed" else "Failed"
+        }
+        previousStates = jobs.associate { it.id to it.state }
+    }
+    val activeCount = jobs.count { !it.terminal }
+    val completeCount = jobs.count { it.state == "Completed" }
+    val failedCount = jobs.count { it.state in listOf("Failed", "Cancelled") }
     val filtered = jobs.filter { when (filter) { "Completed" -> it.state == "Completed"; "Failed" -> it.state in listOf("Failed", "Cancelled"); else -> !it.terminal } }
     Column(Modifier.fillMaxSize().padding(horizontal = PagePadding).padding(top = 8.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -557,7 +582,7 @@ class MainActivity : ComponentActivity() {
                 Icon(Icons.Default.Download, null, tint = Crimson, modifier = Modifier.size(21.dp))
             }
         }
-        DownloadStatusTabs(filter) { filter = it }
+        DownloadStatusTabs(filter, activeCount, completeCount, failedCount) { filter = it }
         if (filtered.isEmpty()) {
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
                 EmptyState(if (filter == "Active") "Your queue is clear" else "No ${filter.lowercase()} downloads",
@@ -566,14 +591,18 @@ class MainActivity : ComponentActivity() {
         } else LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = LocalMusicBottomPadding.current + 20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             items(filtered, key = { it.id }, contentType = { "download" }) { item ->
                 DownloadCard(item, { onDetail(item.id) }, { onPause(item.id) }, { onResume(item.id) }, { onCancel(item.id) },
-                    onPlay = { onPlay(item.id) }, onAdd = if (music.tracks.any { it.downloadId == item.id }) null else { { onAdd(item.id) } })
+                    onPlay = { onPlay(item.id) }, onAdd = if (music.tracks.any { it.downloadId == item.id }) null else { { onAdd(item.id) } },
+                    onDeleteLocal = if (item.localCopyDeleted || (item.uris + listOfNotNull(item.zipUri.takeIf { it.isNotBlank() })).none { raw ->
+                        val uri = Uri.parse(raw); uri.authority == "media" && "downloads" in uri.pathSegments
+                    }) null else { { onDeleteLocal(item.id) } })
             }
         }
     }
 }
 
-@Composable private fun DownloadStatusTabs(selected: String, onSelect: (String) -> Unit) {
+@Composable private fun DownloadStatusTabs(selected: String, active: Int, completed: Int, failed: Int, onSelect: (String) -> Unit) {
     val options = listOf("Active", "Completed", "Failed")
+    val counts = listOf(active, completed, failed)
     GlassControlSurface(Modifier.fillMaxWidth().height(48.dp), shape = RoundedCornerShape(50), tintAlpha = .30f, flexible = false) {
         BoxWithConstraints(Modifier.fillMaxSize().padding(4.dp)) {
             val segment = maxWidth / options.size
@@ -583,11 +612,15 @@ class MainActivity : ComponentActivity() {
             Box(Modifier.offset(x = position).width(segment).fillMaxHeight().clip(capsule)
                 .background(Color.White.copy(alpha = .20f)).border(.5.dp, Color.White.copy(alpha = .11f), capsule))
             Row(Modifier.fillMaxSize()) {
-                options.forEach { option ->
+                options.forEachIndexed { index, option ->
                     Box(Modifier.weight(1f).fillMaxHeight().clip(capsule).clickable { onSelect(option) }, contentAlignment = Alignment.Center) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(option, style = MaterialTheme.typography.labelLarge,
                             color = if (selected == option) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                             fontWeight = if (selected == option) FontWeight.SemiBold else FontWeight.Normal)
+                        Text(counts[index].toString(), style = MaterialTheme.typography.labelSmall,
+                            color = if (selected == option) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             }
@@ -621,9 +654,10 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun DownloadCard(item: DownloadItem, onDetail: () -> Unit, onPause: () -> Unit, onResume: () -> Unit, onCancel: () -> Unit, onPlay: (() -> Unit)? = null, onAdd: (() -> Unit)? = null) {
+@Composable private fun DownloadCard(item: DownloadItem, onDetail: () -> Unit, onPause: () -> Unit, onResume: () -> Unit, onCancel: () -> Unit, onPlay: (() -> Unit)? = null, onAdd: (() -> Unit)? = null, onDeleteLocal: (() -> Unit)? = null) {
     var menu by remember { mutableStateOf(false) }
-    val statusColor = when (item.state) { "Completed" -> Success; "Processing", "Exporting", "Zipping" -> Color(0xFFFFBD66); "Paused", "Interrupted" -> MaterialTheme.colorScheme.onSurfaceVariant; "Failed", "Cancelled" -> MaterialTheme.colorScheme.error; else -> Crimson }
+    var confirmDelete by remember { mutableStateOf(false) }
+    val statusColor = when { item.localCopyDeleted -> MaterialTheme.colorScheme.onSurfaceVariant; else -> when (item.state) { "Completed" -> Success; "Processing", "Exporting", "Zipping" -> Color(0xFFFFBD66); "Paused", "Interrupted" -> MaterialTheme.colorScheme.onSurfaceVariant; "Failed", "Cancelled" -> MaterialTheme.colorScheme.error; else -> Crimson } }
     GlassControlSurface(Modifier.fillMaxWidth().clip(RoundedCornerShape(22.dp)).glassTouch(onDetail), shape = RoundedCornerShape(22.dp), flexible = false, tintAlpha = .25f) {
         Column(Modifier.fillMaxWidth().padding(13.dp), verticalArrangement = Arrangement.spacedBy(11.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -647,13 +681,14 @@ class MainActivity : ComponentActivity() {
                             GlassMenuItem(text = { Text("Cancel download") }, onClick = { menu = false; onCancel() })
                         } else if (item.state != "Completed") GlassMenuItem(text = { Text("Retry") }, onClick = { menu = false; onResume() })
                         if (item.state == "Completed" && item.audio && item.uris.isNotEmpty() && onAdd != null) GlassMenuItem(text = { Text("Add to library") }, onClick = { menu = false; onAdd() })
+                        if (item.terminal && onDeleteLocal != null) GlassMenuItem(text = { Text("Delete local copy", color = MaterialTheme.colorScheme.error) }, onClick = { menu = false; confirmDelete = true })
                     }
                 }
             }
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                DownloadMotionStatus(item.state, statusColor)
+                DownloadMotionStatus(if (item.localCopyDeleted) "Deleted locally" else item.state, statusColor)
                 Spacer(Modifier.weight(1f))
-                Text(if (item.state == "Completed") bytesLabel(item.bytes) else if (item.terminal) item.state else "${item.progress.toInt()}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(if (item.localCopyDeleted) "Local copy removed" else if (item.state == "Completed") bytesLabel(item.bytes) else if (item.terminal) item.state else "${item.progress.toInt()}%", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (!item.terminal) {
                 DownloadMotionProgress(item, Modifier.fillMaxWidth().height(5.dp))
@@ -663,6 +698,34 @@ class MainActivity : ComponentActivity() {
                 }
             }
             if (item.error.isNotBlank()) Text(item.error, maxLines = 2, overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+        }
+    }
+    if (confirmDelete && onDeleteLocal != null) DeleteLocalCopyDialog(onDismiss = { confirmDelete = false }, onConfirm = { confirmDelete = false; onDeleteLocal() })
+}
+
+@Composable private fun DeleteLocalCopyDialog(onDismiss: () -> Unit, onConfirm: () -> Unit) {
+    val scene = LocalGlassScene.current
+    Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Box(Modifier.fillMaxWidth().padding(horizontal = 28.dp), contentAlignment = Alignment.Center) {
+            LiquidGlassPanel(Modifier.fillMaxWidth().widthIn(max = 400.dp), backdrop = scene?.layer,
+                contentOrigin = scene?.origin ?: Offset.Zero, radius = 30.dp, tintAlpha = .16f, animateOnTouch = false) {
+                Column(Modifier.fillMaxWidth().padding(horizontal = 22.dp, vertical = 24.dp), horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Box(Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.error.copy(alpha = .14f)), contentAlignment = Alignment.Center) {
+                        Icon(Icons.Default.DeleteOutline, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(23.dp))
+                    }
+                    Text("Delete local copy?", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Text("The saved audio or video will be removed from this device. Its download history will stay here.",
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    Spacer(Modifier.height(2.dp))
+                    OutlinedButton(onClick = onDismiss, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text("Keep File") }
+                    TextButton(onClick = onConfirm, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                        Text("Delete from Device", color = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
         }
     }
 }
@@ -744,45 +807,93 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable private fun DownloadDetail(item: DownloadItem, onPause: () -> Unit, onResume: () -> Unit, onCancel: () -> Unit, onCopy: () -> Unit, onOpen: () -> Unit, onExtract: () -> Unit, onZip: () -> Unit, onFolder: () -> Unit, onRemove: () -> Unit) {
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(PagePadding).padding(bottom = LocalMusicBottomPadding.current + 20.dp), verticalArrangement = Arrangement.spacedBy(18.dp)) {
-        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Thumbnail(item.media.thumbnail, Modifier.size(64.dp).clip(CardShape))
-            Text(item.media.title, Modifier.weight(1f).padding(start = 12.dp), style = MaterialTheme.typography.titleMedium)
-        }
-        if (item.state == "Completed") Row(verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.CheckCircle, null, tint = Success); Text(if (item.media.playlist) "Playlist complete" else "Download complete", color = Success, modifier = Modifier.padding(start = 8.dp), fontWeight = FontWeight.Bold) }
-        if (!item.terminal) {
-            DownloadMotionProgress(item, Modifier.fillMaxWidth())
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("${item.progress.toInt()}%")
-                if (item.eta > 0) Text("ETA ${durationLabel(item.eta)}")
+@Composable private fun DownloadDetail(item: DownloadItem, onPause: () -> Unit, onResume: () -> Unit, onCancel: () -> Unit, onDeleteLocal: () -> Unit, onCopy: () -> Unit, onOpen: () -> Unit, onExtract: () -> Unit, onZip: () -> Unit, onFolder: () -> Unit, onRemove: () -> Unit) {
+    var confirmDelete by remember(item.id) { mutableStateOf(false) }
+    val statusColor = when (item.state) { "Completed" -> Success; "Failed" -> MaterialTheme.colorScheme.error; "Cancelled" -> MaterialTheme.colorScheme.onSurfaceVariant; else -> Crimson }
+    val localFiles = (item.uris + listOfNotNull(item.zipUri.takeIf { it.isNotBlank() })).filter { raw ->
+        val uri = Uri.parse(raw); uri.authority == "media" && "downloads" in uri.pathSegments
+    }
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(PagePadding).padding(bottom = LocalMusicBottomPadding.current + 20.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(26.dp), tintAlpha = .18f) {
+            Row(Modifier.fillMaxWidth().padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Thumbnail(item.media.thumbnail, Modifier.size(92.dp).clip(RoundedCornerShape(18.dp)))
+                Column(Modifier.weight(1f).padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(if (item.media.playlist) "PLAYLIST DOWNLOAD" else if (item.audio) "AUDIO DOWNLOAD" else "VIDEO DOWNLOAD", style = MaterialTheme.typography.labelSmall, color = Crimson, fontWeight = FontWeight.Bold)
+                    Text(item.media.title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                    if (item.media.channel.isNotBlank()) Text(item.media.channel, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
             }
         }
-        if (item.line.isNotBlank()) Text(item.line, style = MaterialTheme.typography.bodySmall)
-        if (item.state !in listOf("Paused", "Interrupted") && !item.terminal) FlowRow {
-            TextButton(onClick = onPause) { Text("Pause") }
-            TextButton(onClick = onCancel) { Text("Cancel download") }
+        GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), tintAlpha = .14f) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(item.state, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold, color = statusColor)
+                    Spacer(Modifier.weight(1f))
+                    if (item.state == "Completed") Text(if (item.media.playlist) "Ready" else "Offline ready", style = MaterialTheme.typography.labelMedium, color = statusColor)
+                    else if (!item.terminal) Text("${item.progress.toInt()}%", style = MaterialTheme.typography.titleSmall, color = statusColor, fontWeight = FontWeight.Bold)
+                }
+                if (!item.terminal) DownloadMotionProgress(item, Modifier.fillMaxWidth())
+                Text(item.line.ifBlank { if (item.state == "Completed") "Saved on this device" else item.state }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (!item.terminal && item.eta > 0) Text("About ${durationLabel(item.eta)} remaining", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (item.media.playlist) {
+                    HorizontalDivider(color = Color.White.copy(alpha = .10f))
+                    Text("${item.completedCount} of ${item.media.count.coerceAtLeast(item.completedCount)} tracks saved · ${item.failedCount} failed", style = MaterialTheme.typography.bodyMedium)
+                }
+                if (item.state !in listOf("Paused", "Interrupted") && !item.terminal) Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = onPause, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Pause") }
+                    TextButton(onClick = onCancel, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Text("Cancel", color = MaterialTheme.colorScheme.error) }
+                }
+            }
         }
-        CardBlock {
-            DetailRow("Format", if (item.audio) "MP3 audio" else "Video")
-            DetailRow("Quality", qualityLabel(item.audio, item.quality))
-            DetailRow("File size", if (item.bytes > 0) bytesLabel(item.bytes) else "Available after download")
-            DetailRow("Destination", item.options.folderName)
-            DetailRow("State", item.state)
-            if (item.media.playlist) DetailRow("Playlist results", "${item.completedCount} downloaded · ${item.failedCount} failed")
-            DetailRow("Source URL", item.media.url)
+        if (item.error.isNotBlank()) GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(20.dp), tintAlpha = .16f) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Download issue", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                Text(item.error, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
-        if (item.error.isNotBlank()) CardBlock { Label("DOWNLOAD ERROR"); Text(item.error, color = Crimson, fontSize = 13.sp) }
-        if (item.zipUri.isNotBlank()) OutlinedButton(onClick = onExtract, modifier = Modifier.fillMaxWidth()) { Text("Extract and import playlist") }
+        GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), tintAlpha = .12f) {
+            Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                Text("FILE DETAILS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                DetailRow("Format", if (item.audio) "MP3 audio" else "Video")
+                DetailRow("Quality", qualityLabel(item.audio, item.quality))
+                DetailRow("File size", if (item.bytes > 0) bytesLabel(item.bytes) else "Available after download")
+                DetailRow("Saved to", item.options.folderName)
+                if (item.localCopyDeleted) DetailRow("Device copy", "Deleted · history kept")
+                if (item.media.playlist) DetailRow("Playlist source", item.media.channel.ifBlank { item.media.url }) else DetailRow("Source", item.media.url)
+            }
+        }
+        if (item.media.playlist && item.media.entries.isNotEmpty()) {
+            GlassControlSurface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(22.dp), tintAlpha = .10f) {
+                Column(Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text("PLAYLIST CONTENTS", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.Bold)
+                    item.media.entries.take(8).forEachIndexed { index, track ->
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text("${index + 1}", modifier = Modifier.width(26.dp), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Thumbnail(track.thumbnail, Modifier.size(40.dp).clip(RoundedCornerShape(9.dp)))
+                            Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                                Text(track.title, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodyMedium)
+                                if (track.channel.isNotBlank()) Text(track.channel, maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                    }
+                    if (item.media.entries.size > 8) Text("and ${item.media.entries.size - 8} more tracks", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+        if (item.zipUri.isNotBlank()) OutlinedButton(onClick = onExtract, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp)) { Text("Extract and import playlist") }
         if (item.state == "Completed" && item.uris.isNotEmpty()) PrimaryButton(if (item.audio) "Play now" else "Open video", Icons.Default.PlayArrow, onOpen)
         if (item.zipUri.isNotBlank()) PrimaryButton("Open ZIP", Icons.Default.FolderZip, onZip)
         if (item.state in listOf("Failed", "Cancelled", "Paused", "Interrupted")) PrimaryButton(if (item.state in listOf("Paused", "Interrupted")) "Resume download" else "Retry download", Icons.Default.Refresh, onResume)
-        FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            OutlinedButton(onClick = onCopy, modifier = Modifier.heightIn(min = 48.dp)) { Icon(Icons.Default.ContentCopy, null, Modifier.size(18.dp)); Text("Copy URL", Modifier.padding(start = 8.dp)) }
-            OutlinedButton(onClick = onFolder, modifier = Modifier.heightIn(min = 48.dp)) { Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp)); Text("Open folder", Modifier.padding(start = 8.dp)) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            OutlinedButton(onClick = onCopy, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Icon(Icons.Default.ContentCopy, null, Modifier.size(18.dp)); Text("Source", Modifier.padding(start = 7.dp)) }
+            OutlinedButton(onClick = onFolder, modifier = Modifier.weight(1f).heightIn(min = 48.dp)) { Icon(Icons.Default.FolderOpen, null, Modifier.size(18.dp)); Text("Folder", Modifier.padding(start = 7.dp)) }
+        }
+        if (localFiles.isNotEmpty() && !item.localCopyDeleted) OutlinedButton(onClick = { confirmDelete = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+            Icon(Icons.Default.DeleteOutline, null, tint = MaterialTheme.colorScheme.error); Text("Delete local copy", Modifier.padding(start = 8.dp), color = MaterialTheme.colorScheme.error)
         }
         if (item.terminal || item.state in listOf("Paused", "Interrupted")) TextButton(onClick = onRemove, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.DeleteOutline, null); Text("Remove from history", Modifier.padding(start = 8.dp)) }
     }
+    if (confirmDelete) DeleteLocalCopyDialog(onDismiss = { confirmDelete = false }, onConfirm = { confirmDelete = false; onDeleteLocal() })
 }
 
 @Composable private fun SettingsScreen(prefs: Preferences, engine: String, onFolder: () -> Unit, onStorage: () -> Unit, onCookies: () -> Unit, onLogs: () -> Unit, onPlayer: () -> Unit, onHistory: () -> Unit, onUpdate: () -> Unit) {

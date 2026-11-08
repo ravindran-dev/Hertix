@@ -371,8 +371,14 @@ private val Accent = MobileUi.accent
         }
         if (lyrics.isNotBlank() && lookupState == "available") Text("Lyrics · online catalog or local file", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-            if (lyrics.isBlank()) Button(onClick = { lookupAttempt++ }, enabled = lookupState != "loading", modifier = Modifier.weight(1f)) { Text("Search again") }
-            OutlinedButton(onClick = { picker.launch(arrayOf("text/*", "application/octet-stream")) }, modifier = Modifier.weight(1f)) { Text("Import lyrics") }
+            if (lyrics.isBlank()) Button(onClick = { lookupAttempt++ }, enabled = lookupState != "loading", contentPadding = PaddingValues(horizontal = 8.dp),
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                Text("Search again", maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge)
+            }
+            OutlinedButton(onClick = { picker.launch(arrayOf("text/*", "application/octet-stream")) }, contentPadding = PaddingValues(horizontal = 8.dp),
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp)) {
+                Text("Import lyrics", maxLines = 1, softWrap = false, style = MaterialTheme.typography.labelLarge)
+            }
         }
     }
 }

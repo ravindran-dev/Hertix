@@ -50,17 +50,19 @@ internal object LyricsRepository {
         else entries[key]?.takeIf { it.expiresAt > System.currentTimeMillis() }?.let { return@withContext it.lyrics }
 
         val title = stripDecorations(originalTitle)
-        val artist = cleanArtist(originalArtist)
+        // YouTube downloads may expose the uploader or label as the artist.
+        // Avoid rejecting a catalog match against a publisher/channel name.
+        val artist = cleanArtist(originalArtist).takeUnless(::looksLikePublisher).orEmpty()
         val duration = track.durationMs.takeIf { it in 1_000L..3_600_000L }?.let { (it + 500L) / 1_000L }
 
         // /get gives the most precise match, but LRCLIB deliberately requires duration
         // to be within about two seconds. Search below recovers from container/intro offsets.
         val exactParams = linkedMapOf("track_name" to originalTitle)
-        originalArtist.takeIf(::knownArtist)?.let { exactParams["artist_name"] = it }
+        artist.takeIf(::knownArtist)?.let { exactParams["artist_name"] = it }
         track.album.takeIf { it.isNotBlank() && !it.equals("Unknown album", true) }?.let { exactParams["album_name"] = it }
         duration?.let { exactParams["duration"] = it.toString() }
         var providerFailure: Exception? = null
-        val exact = if (knownArtist(originalArtist)) runCatching { getRecord("$baseUrl/get", exactParams) }
+        val exact = if (knownArtist(artist)) runCatching { getRecord("$baseUrl/get", exactParams) }
             .onFailure { providerFailure = it as? Exception }
             .getOrDefault(LookupResult.Missing) else LookupResult.Missing
         if (exact is LookupResult.Found) return@withContext cache(key, exact.record.lyrics)
@@ -235,6 +237,8 @@ internal object LyricsRepository {
     private fun stripDecorations(value: String): String = value
         .replace(Regex("\\([^)]*(official|video|audio|lyrics|visualizer|4k|hd|remaster)[^)]*\\)", RegexOption.IGNORE_CASE), " ")
         .replace(Regex("\\[[^]]*(official|video|audio|lyrics|visualizer|4k|hd|remaster)[^]]*]", RegexOption.IGNORE_CASE), " ")
+        .replace(Regex("[\\[(](tamil|telugu|hindi|malayalam|kannada|english)[\\]) ]", RegexOption.IGNORE_CASE), " ")
+        .replace(Regex("\\b(lyrical|lyric video|lyrics?|official|video|audio)\\b", RegexOption.IGNORE_CASE), " ")
         .replace(Regex("\\s+"), " ").trim()
 
     private fun cleanArtist(value: String): String = value
@@ -245,6 +249,10 @@ internal object LyricsRepository {
     private fun knownArtist(value: String) = value.isNotBlank() &&
         !value.equals("Unknown artist", true) && !value.equals("Various Artists", true) && value != "null"
 
+    private fun looksLikePublisher(value: String): Boolean =
+        Regex("(?i)\\b(music|records|studios?|entertainment|films?|label|official|channel|network|productions?)\\b").containsMatchIn(value) ||
+            value.split(Regex("[,|·]")).count { it.isNotBlank() } > 2
+
     private suspend fun findBiniLyrics(title: String, artist: String, duration: Long?, album: String): String? = withContext(Dispatchers.IO) {
         val params = linkedMapOf("track" to title)
         artist.takeIf(::knownArtist)?.let { params["artist"] = it }
@@ -253,15 +261,18 @@ internal object LyricsRepository {
         val (status, body) = request("https://lyrics-api.binimum.org/", params)
         if (status != HttpURLConnection.HTTP_OK || body.length > MAX_PROVIDER_BODY) return@withContext null
         val hits = runCatching { JSONObject(body).optJSONArray("results") }.getOrNull() ?: return@withContext null
+        val requestedTitleTokens = tokens(title)
         val best = (0 until hits.length()).mapNotNull { index ->
             val hit = runCatching { hits.getJSONObject(index) }.getOrNull() ?: return@mapNotNull null
             val candidateTitle = hit.optString("track_name").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
             val candidateArtist = hit.optString("artist_name").takeIf { it.isNotBlank() && it != "null" }.orEmpty()
             val titleScore = tokenScore(tokens(title), tokens(candidateTitle))
+            val candidateTitleTokens = tokens(candidateTitle)
+            val titleRecall = if (requestedTitleTokens.isEmpty()) 0.0 else requestedTitleTokens.intersect(candidateTitleTokens).size.toDouble() / requestedTitleTokens.size
             val artistScore = if (knownArtist(artist)) tokenScore(tokens(artist), tokens(candidateArtist)) else 0.0
             val candidateDuration = hit.optDouble("duration", 0.0).takeIf { it.isFinite() && it > 0 }
             val durationDelta = if (duration != null && candidateDuration != null) kotlin.math.abs(candidateDuration - duration) else Double.POSITIVE_INFINITY
-            val exactEnough = if (knownArtist(artist)) titleScore >= .7 && artistScore >= .35 else titleScore >= .96 && durationDelta <= 8.0
+            val exactEnough = if (knownArtist(artist)) titleScore >= .7 && artistScore >= .35 else titleRecall >= .95 && durationDelta <= 8.0
             if (!exactEnough || (duration != null && durationDelta.isFinite() && durationDelta > 20.0)) return@mapNotNull null
             val url = hit.optString("lyricsUrl")
             val safeLyricsUrl = runCatching { URL(url) }.getOrNull()?.let { parsed ->
@@ -270,7 +281,7 @@ internal object LyricsRepository {
                         (parsed.host.equals("lyrics-storage.binimum.org", true) && parsed.path.endsWith(".ttml")))
             } == true
             if (!safeLyricsUrl) return@mapNotNull null
-            (hit to (titleScore * .65 + artistScore * .35 + if (durationDelta.isFinite()) (1.0 - durationDelta.coerceAtMost(30.0) / 30.0) * .12 else 0.0))
+            (hit to ((if (knownArtist(artist)) titleScore else titleRecall) * .65 + artistScore * .35 + if (durationDelta.isFinite()) (1.0 - durationDelta.coerceAtMost(30.0) / 30.0) * .12 else 0.0))
         }.sortedByDescending { it.second }
         val selected = best.firstOrNull() ?: return@withContext null
         if (best.getOrNull(1)?.let { selected.second - it.second < .06 } == true) return@withContext null
