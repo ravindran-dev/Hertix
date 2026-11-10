@@ -1,3 +1,10 @@
+Hertix 1.0.23
+
+- Keep each playlist track linked to its exact video so source-based lyrics lookup works for individual songs.
+- Search lyrics catalogs with native-script and Latin transliterations for Tamil and other Indian languages.
+- Prefer time-synchronized lyrics when available and avoid false line highlighting for plain lyrics.
+- Replace saved plain lyrics with synchronized lyrics when a better match is found.
+
 Hertix 1.0.22
 
 - Regional lyrics search now tries original-script and Tanglish queries and checks several closely matched YouTube Music sources.

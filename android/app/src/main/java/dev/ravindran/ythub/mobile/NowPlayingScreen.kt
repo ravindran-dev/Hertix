@@ -298,6 +298,7 @@ private val Accent = MobileUi.accent
     val savedLyrics = library.tracks.firstOrNull { it.id == track.id }?.lyrics.orEmpty()
     val lyrics = savedLyrics.ifBlank { track.lyrics }
     val lines = remember(lyrics) { parseLyrics(lyrics) }
+    val hasSyncedTiming = remember(lines) { lines.isNotEmpty() }
     val tamilLyrics = remember(lyrics) { Tanglish.isTamil(lyrics) }
     var tanglish by remember(track.id) { mutableStateOf(true) }
     val displayedLyrics = remember(lyrics, tamilLyrics, tanglish) { if (tamilLyrics && tanglish) Tanglish.convert(lyrics) else lyrics }
@@ -309,28 +310,28 @@ private val Accent = MobileUi.accent
     var lookupAttempt by remember(track.id) { mutableIntStateOf(0) }
     var lookupState by remember(track.id) { mutableStateOf("loading") }
     var lookupError by remember(track.id) { mutableStateOf("") }
-    val active = lines.indexOfLast { it.timeMs <= player.position }
+    val active = if (hasSyncedTiming) lines.indexOfLast { it.timeMs <= player.position } else -1
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri -> if (uri != null) scope.launch {
         runCatching { MusicRepository.attachLyrics(track.id, uri) }.onFailure { MusicRepository.message.value = it.message }
     } }
     LaunchedEffect(track.id, lyrics, lookupAttempt) {
-        if (lyrics.isNotBlank()) {
+        if (lyrics.isNotBlank() && hasSyncedTiming) {
             lookupState = "available"
             return@LaunchedEffect
         }
-        lookupState = "loading"
+        lookupState = if (lyrics.isBlank()) "loading" else "available"
         lookupError = ""
         runCatching { LyricsRepository.find(track, forceLookup = lookupAttempt > 0) }
             .onSuccess { found ->
-                if (found.isNullOrBlank()) lookupState = "missing"
+                if (found.isNullOrBlank()) lookupState = if (lyrics.isBlank()) "missing" else "available"
                 else {
                     MusicRepository.saveLyrics(track.id, found)
                     lookupState = "available"
                 }
             }
-            .onFailure { lookupError = it.message ?: "Could not look up lyrics."; lookupState = "error" }
+            .onFailure { if (lyrics.isBlank()) { lookupError = it.message ?: "Could not look up lyrics."; lookupState = "error" } }
     }
-    LaunchedEffect(active, auto) { if (auto && active >= 0 && !list.isScrollInProgress) list.animateScrollToItem(active) }
+    LaunchedEffect(active, auto, hasSyncedTiming) { if (hasSyncedTiming && auto && active >= 0 && !list.isScrollInProgress) list.animateScrollToItem(active) }
 
     Column(Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(horizontal = 18.dp).padding(bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -380,7 +381,7 @@ private val Accent = MobileUi.accent
             LazyColumn(Modifier.fillMaxWidth().heightIn(max = 440.dp), state = list, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 itemsIndexed(displayedLines) { i, line ->
                     Text(line.text, color = if (i == active) Accent else MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.titleMedium,
-                        modifier = Modifier.fillMaxWidth().clickable { MusicPlayback.seek(line.timeMs) }.padding(vertical = 6.dp))
+                        modifier = Modifier.fillMaxWidth().then(if (hasSyncedTiming) Modifier.clickable { MusicPlayback.seek(line.timeMs) } else Modifier).padding(vertical = 6.dp))
                 }
             }
         }

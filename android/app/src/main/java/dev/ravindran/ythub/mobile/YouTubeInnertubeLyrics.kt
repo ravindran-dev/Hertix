@@ -70,7 +70,7 @@ internal object YouTubeInnertubeLyrics {
         }.takeIf(String::isNotBlank)
     }
 
-    private fun videoId(url: String): String? = runCatching {
+    internal fun videoId(url: String): String? = runCatching {
         val uri = Uri.parse(url)
         val host = uri.host?.lowercase(Locale.ROOT).orEmpty()
         val id = when {

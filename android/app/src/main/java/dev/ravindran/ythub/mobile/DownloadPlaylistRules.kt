@@ -17,6 +17,15 @@ internal fun DownloadItem.orderedAudioUris(): List<String> {
     return order.mapNotNull { byName[it] }
 }
 
+/** Resolve the source video from yt-dlp's stable video ID embedded in the exported filename. */
+internal fun DownloadItem.sourceVideoUrl(uri: String): String {
+    if (!media.playlist) return media.url
+    val index = uris.indexOf(uri)
+    val filename = exportedNames.getOrNull(index).orEmpty()
+    val videoId = Regex("\\[([A-Za-z0-9_-]{11})]\\.").find(filename)?.groupValues?.getOrNull(1)
+    return media.entries.firstOrNull { playlistEntryKey(it) == videoId }?.url.orEmpty()
+}
+
 /** Stable download identity makes rescans/retries idempotent and preserves user renames. */
 internal fun MusicState.withDownloadPlaylist(job: DownloadItem, orderedIds: List<String>): MusicState {
     if (!job.createsLibraryPlaylist(settings.downloadPlaylists) || orderedIds.isEmpty()) return this

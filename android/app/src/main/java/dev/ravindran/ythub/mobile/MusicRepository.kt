@@ -181,7 +181,7 @@ object MusicRepository {
         .replace(Regex("\\([^)]*\\)|\\[[^]]*]"), " ")
         .split(Regex("[^a-z0-9]+"))
         .filter { it.length > 2 && it !in setOf("official", "audio", "video", "lyrics", "lyrical", "song", "music", "visualizer", "youtube", "topic", "from", "the", "and", "feat", "with") }
-    private fun metadata(uri: String, downloadId: String? = null, fallback: String = "", fallbackArtworkUrl: String = ""): LocalTrack {
+    private fun metadata(uri: String, downloadId: String? = null, fallback: String = "", fallbackArtworkUrl: String = "", sourceVideoUrl: String = ""): LocalTrack {
         val parsed = Uri.parse(uri)
         var filename = fallback.ifBlank { parsed.lastPathSegment.orEmpty() }; var size = 0L
         context.contentResolver.query(parsed, arrayOf(OpenableColumns.DISPLAY_NAME, OpenableColumns.SIZE), null, null, null)?.use { cursor ->
@@ -200,7 +200,8 @@ object MusicRepository {
             return LocalTrack(id, uri, field(MediaMetadataRetriever.METADATA_KEY_TITLE).ifBlank { filename.substringBeforeLast('.') },
                 field(MediaMetadataRetriever.METADATA_KEY_ARTIST).ifBlank { "Unknown artist" }, field(MediaMetadataRetriever.METADATA_KEY_ALBUM).ifBlank { "Unknown album" }, filename,
                 field(MediaMetadataRetriever.METADATA_KEY_DURATION).toLongOrNull() ?: 0, size, field(MediaMetadataRetriever.METADATA_KEY_BITRATE).toLongOrNull() ?: 0,
-                filename.substringAfterLast('.', "audio").uppercase(), art, downloadId = downloadId, lyrics = embeddedLyrics, folder = if (downloadId == null) runCatching { android.provider.DocumentsContract.getDocumentId(parsed).substringBeforeLast('/', "Imported audio") }.getOrDefault("Imported audio") else DownloadStore.items.value.find { it.id == downloadId }?.options?.folderName ?: "Downloaded audio")
+                filename.substringAfterLast('.', "audio").uppercase(), art, downloadId = downloadId, lyrics = embeddedLyrics, folder = if (downloadId == null) runCatching { android.provider.DocumentsContract.getDocumentId(parsed).substringBeforeLast('/', "Imported audio") }.getOrDefault("Imported audio") else DownloadStore.items.value.find { it.id == downloadId }?.options?.folderName ?: "Downloaded audio",
+                sourceVideoUrl = sourceVideoUrl)
         } finally { reader.release() }
     }
     suspend fun downloadedTracks(id: String): List<String> = withContext(Dispatchers.IO) {
@@ -208,8 +209,9 @@ object MusicRepository {
         val job = DownloadStore.items.value.find { it.id == id && it.audio && it.state == "Completed" } ?: error("Audio download is not complete")
         val tracks = job.orderedAudioUris().mapNotNull { uri -> runCatching {
             val index = job.uris.indexOf(uri)
-            val thumbnail = if (job.media.playlist) job.media.entries.getOrNull(index)?.thumbnail.orEmpty() else job.media.thumbnail
-            metadata(uri, job.id, job.exportedNames.getOrNull(index).orEmpty(), thumbnail)
+            val sourceUrl = job.sourceVideoUrl(uri)
+            val thumbnail = if (job.media.playlist) job.media.entries.firstOrNull { it.url == sourceUrl }?.thumbnail.orEmpty() else job.media.thumbnail
+            metadata(uri, job.id, job.exportedNames.getOrNull(index).orEmpty(), thumbnail, sourceUrl)
         }.getOrNull() }
         update { it.copy(tracks = MusicRules.merge(it.tracks, tracks), hidden = it.hidden - tracks.map { t -> t.id }.toSet()) }
         tracks.map { it.id }
@@ -231,11 +233,14 @@ object MusicRepository {
                     val cached = byUri[uri]
                     // Keep the user's auto-add preference, but still repair artwork for tracks already in their library.
                     if (!allowNewLibraryItems && cached == null) continue
-                    val thumbnail = if (job.media.playlist) job.media.entries.getOrNull(i)?.thumbnail.orEmpty() else job.media.thumbnail
+                    val sourceUrl = job.sourceVideoUrl(uri)
+                    val sourceEntry = job.media.entries.firstOrNull { it.url == sourceUrl }
+                    val thumbnail = if (job.media.playlist) sourceEntry?.thumbnail.orEmpty() else job.media.thumbnail
                     val track = runCatching {
                         if (!forceDownloads && cached != null && exists(uri)) cached.copy(available = true,
-                            artwork = cached.artwork.ifBlank { fetchArtwork(cached.id, thumbnail) })
-                        else metadata(uri, job.id, job.exportedNames.getOrNull(i).orEmpty(), thumbnail)
+                            artwork = cached.artwork.ifBlank { fetchArtwork(cached.id, thumbnail) },
+                            sourceVideoUrl = cached.sourceVideoUrl.ifBlank { sourceUrl })
+                        else metadata(uri, job.id, job.exportedNames.getOrNull(i).orEmpty(), thumbnail, sourceUrl)
                     }.getOrNull() ?: continue
                     ids.add(track.id)
                     if (track.id !in old.hidden) incoming.add(track)
@@ -270,7 +275,11 @@ object MusicRepository {
     }
     fun saveLyrics(id: String, text: String) {
         if (text.isBlank()) return
-        update { it.copy(tracks = it.tracks.map { track -> if (track.id == id && track.lyrics.isBlank()) track.copy(lyrics = text) else track }) }
+        val replacementIsSynced = parseLyrics(text).isNotEmpty()
+        update { it.copy(tracks = it.tracks.map { track ->
+            if (track.id == id && (track.lyrics.isBlank() || (replacementIsSynced && parseLyrics(track.lyrics).isEmpty()))) track.copy(lyrics = text)
+            else track
+        }) }
     }
     /** Each import gets an isolated private directory; no existing destination is overwritten. */
     suspend fun extractPlaylist(uri: Uri, name: String) = withContext(Dispatchers.IO) { scanLock.withLock {

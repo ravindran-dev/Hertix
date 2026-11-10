@@ -1,12 +1,13 @@
 package dev.ravindran.ythub.mobile
 
+import android.icu.text.Transliterator
+import android.os.Build
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
-import java.net.URI
 import java.net.URL
 import java.net.URLEncoder
 import java.io.StringReader
@@ -46,7 +47,7 @@ internal object LyricsRepository {
         val originalArtist = track.artist.trim()
         require(originalTitle.isNotEmpty()) { "Track title is needed to search for lyrics." }
 
-        val key = listOf(originalTitle, originalArtist, track.album, track.durationMs.toString())
+        val key = listOf(track.sourceVideoUrl, originalTitle, originalArtist, track.album, track.durationMs.toString())
             .joinToString("\u001f").lowercase(Locale.ROOT)
         if (forceLookup) entries.remove(key)
         else entries[key]?.takeIf { it.expiresAt > System.currentTimeMillis() }?.let { return@withContext it.lyrics }
@@ -57,24 +58,31 @@ internal object LyricsRepository {
         val artist = cleanArtist(originalArtist).takeUnless(::looksLikePublisher).orEmpty()
         val duration = track.durationMs.takeIf { it in 1_000L..3_600_000L }?.let { (it + 500L) / 1_000L }
         var providerFailure: Exception? = null
+        var plainFallback: String? = null
+        fun timedLyrics(candidate: String?): String? {
+            if (candidate.isNullOrBlank()) return null
+            if (hasSyncedTiming(candidate)) return candidate
+            if (plainFallback == null) plainFallback = candidate
+            return null
+        }
 
         // For YouTube downloads, first ask the video-ID catalog. It can identify
         // regional-language recordings even when file tags contain only the channel.
         val videoLyrics = runCatching { findSimpMusicLyrics(track, title, artist, duration) }
             .onFailure { providerFailure = it as? Exception }.getOrNull()
-        if (!videoLyrics.isNullOrBlank()) return@withContext cache(key, videoLyrics)
+        timedLyrics(videoLyrics)?.let { return@withContext cache(key, it) }
 
         // YouTube Music's lyrics tab is keyed by the exact playing
         // video and can return regional lyrics absent from title catalogs.
-        val videoUrl = track.downloadId?.let { id ->
-            DownloadStore.items.value.firstOrNull { it.id == id }?.media?.url
-        }.orEmpty()
+        val videoUrl = track.sourceVideoUrl.ifBlank {
+            track.downloadId?.let { id -> DownloadStore.items.value.firstOrNull { it.id == id }?.sourceVideoUrl(track.uri) }.orEmpty()
+        }
         val lyricsSourceUrls = mutableListOf<String>()
         if (videoUrl.isNotBlank()) lyricsSourceUrls += videoUrl
         if (videoUrl.isNotBlank()) {
             val youtubeMusic = runCatching { YouTubeInnertubeLyrics.lyrics(videoUrl) }
                 .onFailure { providerFailure = it as? Exception }.getOrNull()
-            if (!youtubeMusic.isNullOrBlank()) return@withContext cache(key, youtubeMusic)
+            timedLyrics(youtubeMusic)?.let { return@withContext cache(key, it) }
         }
 
         // Imported and rescanned local files can lose the download-to-video link.
@@ -86,14 +94,14 @@ internal object LyricsRepository {
             if (source.url !in lyricsSourceUrls) lyricsSourceUrls += source.url
             val youtubeMusic = runCatching { YouTubeInnertubeLyrics.lyrics(source.url) }
                 .onFailure { providerFailure = it as? Exception }.getOrNull()
-            if (!youtubeMusic.isNullOrBlank()) return@withContext cache(key, youtubeMusic)
+            timedLyrics(youtubeMusic)?.let { return@withContext cache(key, it) }
         }
 
         // KuGou's public lyric catalogue has broader non-English coverage than
         // LRCLIB and returns line-synced LRC without requiring an API key.
         val kugou = runCatching { findKuGouLyrics(title, artist, duration, track.album) }
             .onFailure { providerFailure = it as? Exception }.getOrNull()
-        if (!kugou.isNullOrBlank()) return@withContext cache(key, kugou)
+        timedLyrics(kugou)?.let { return@withContext cache(key, it) }
 
         // /get gives the most precise match, but LRCLIB deliberately requires duration
         // to be within about two seconds. Search below recovers from container/intro offsets.
@@ -104,7 +112,7 @@ internal object LyricsRepository {
         val exact = if (knownArtist(artist)) runCatching { getRecord("$baseUrl/get", exactParams) }
             .onFailure { providerFailure = it as? Exception }
             .getOrDefault(LookupResult.Missing) else LookupResult.Missing
-        if (exact is LookupResult.Found) return@withContext cache(key, exact.record.lyrics)
+        if (exact is LookupResult.Found) timedLyrics(exact.record.lyrics)?.let { return@withContext cache(key, it) }
 
         // LRCLIB search does not accept duration; rank results locally so a broad query
         // cannot silently attach another song with a similar title.
@@ -115,7 +123,7 @@ internal object LyricsRepository {
             .onFailure { providerFailure = it as? Exception }
             .getOrDefault(emptyList())
         val best = selectBest(records, title, artist, duration)
-        if (best != null) return@withContext cache(key, best.lyrics)
+        if (best != null) timedLyrics(best.lyrics)?.let { return@withContext cache(key, it) }
 
         // Imported/downloaded tracks can carry a label or channel as the artist. A
         // title-only retry is accepted only for an almost exact title and near-exact
@@ -126,7 +134,7 @@ internal object LyricsRepository {
                 .onFailure { providerFailure = it as? Exception }
                 .getOrDefault(emptyList())
             val durationMatch = selectBest(titleOnly, title, "", duration)
-            if (durationMatch != null) return@withContext cache(key, durationMatch.lyrics)
+            if (durationMatch != null) timedLyrics(durationMatch.lyrics)?.let { return@withContext cache(key, it) }
         }
 
         // Some catalog entries use the metadata provider's alternate title. Retry with a
@@ -138,7 +146,7 @@ internal object LyricsRepository {
                 "artist_name" to artist
             )) }.onFailure { providerFailure = it as? Exception }.getOrDefault(LookupResult.Missing)
             if (alternate is LookupResult.Found && selectBest(listOf(alternate.record), title, artist, duration) != null) {
-                return@withContext cache(key, alternate.record.lyrics)
+                timedLyrics(alternate.record.lyrics)?.let { return@withContext cache(key, it) }
             }
         }
 
@@ -147,19 +155,21 @@ internal object LyricsRepository {
         // BiniLyrics is particularly useful for non-English catalogs, including Tamil.
         val bini = runCatching { findBiniLyrics(title, artist, duration, track.album) }
             .onFailure { providerFailure = it as? Exception }.getOrNull()
-        if (!bini.isNullOrBlank()) return@withContext cache(key, bini)
+        timedLyrics(bini)?.let { return@withContext cache(key, it) }
 
         val better = runCatching { findBetterLyrics(title, artist, duration, track.album) }
             .onFailure { providerFailure = it as? Exception }.getOrNull()
-        if (!better.isNullOrBlank()) return@withContext cache(key, better)
+        timedLyrics(better)?.let { return@withContext cache(key, it) }
 
         // Captions are a final exact-video fallback. They remain
         // lower priority than lyrics catalogs to avoid replacing authored lyrics.
         for (lyricsSourceUrl in lyricsSourceUrls.take(4)) {
             val transcript = runCatching { YouTubeInnertubeLyrics.transcript(lyricsSourceUrl) }
                 .onFailure { providerFailure = it as? Exception }.getOrNull()
-            if (!transcript.isNullOrBlank()) return@withContext cache(key, transcript)
+            timedLyrics(transcript)?.let { return@withContext cache(key, it) }
         }
+
+        plainFallback?.let { return@withContext cache(key, it) }
 
         providerFailure?.let { throw IllegalStateException("Lyrics providers could not be reached. Try again later.", it) }
 
@@ -172,21 +182,21 @@ internal object LyricsRepository {
         val cleanArtist = artist.takeIf(::knownArtist).orEmpty().take(80)
         // Innertube can index regional recordings under their Latin transliteration.
         // Search both scripts, then validate every candidate before requesting its tab.
-        val latinTitle = Tanglish.convert(cleanTitle).trim()
-        val latinArtist = Tanglish.convert(cleanArtist).trim()
+        val latinTitle = transliterateForSearch(cleanTitle).trim()
+        val latinArtist = transliterateForSearch(cleanArtist).trim()
         val primaryQueries = listOf("$cleanTitle $cleanArtist".trim(), "$latinTitle $latinArtist".trim())
             .filter(String::isNotBlank).distinct()
-        val titleTokens = tokens(Tanglish.convert(cleanTitle))
-        val artistTokens = tokens(Tanglish.convert(cleanArtist))
+        val titleTokens = tokens(latinTitle)
+        val artistTokens = tokens(latinArtist)
         val candidates = linkedMapOf<String, Pair<YouTubeResult, Double>>()
         suspend fun collect(query: String) {
             val results = runCatching { searchYouTube(query, "songs") }.getOrNull().orEmpty()
             val ranked = results.asSequence()
                 .filter { it.type == "video" }
                 .mapNotNull { result ->
-                    val candidateTitle = tokens(Tanglish.convert(stripDecorations(result.title)))
+                    val candidateTitle = tokens(transliterateForSearch(stripDecorations(result.title)))
                     val titleScore = tokenScore(titleTokens, candidateTitle)
-                    val candidateArtist = tokens(Tanglish.convert(result.channel))
+                    val candidateArtist = tokens(transliterateForSearch(result.channel))
                     val artistRecall = if (artistTokens.isEmpty()) 0.0 else
                         artistTokens.intersect(candidateArtist).size.toDouble() / artistTokens.size
                     val delta = if (duration != null && result.durationSeconds > 0)
@@ -302,7 +312,9 @@ internal object LyricsRepository {
         return if (precision + recall == 0.0) 0.0 else 2.0 * precision * recall / (precision + recall)
     }
 
-    private fun tokens(value: String): Set<String> = normalize(value)
+    private fun hasSyncedTiming(lyrics: String) = parseLyrics(lyrics).isNotEmpty()
+
+    private fun tokens(value: String): Set<String> = normalize(transliterateForSearch(value))
         .split(Regex("\\s+"))
         .filter { it.isNotBlank() && it !in removableTitleWords && it !in setOf("feat", "featuring", "ft") }
         .toSet()
@@ -348,15 +360,10 @@ internal object LyricsRepository {
             value.split(Regex("[,|·]")).count { it.isNotBlank() } > 2
 
     private suspend fun findSimpMusicLyrics(track: LocalTrack, title: String, artist: String, duration: Long?): String? = withContext(Dispatchers.IO) {
-        val download = track.downloadId?.let { id -> DownloadStore.items.value.firstOrNull { it.id == id } } ?: return@withContext null
-        val source = runCatching { URI(download.media.url) }.getOrNull() ?: return@withContext null
-        val host = source.host?.lowercase(Locale.ROOT).orEmpty()
-        val videoId = when {
-            host == "youtu.be" -> source.path.trim('/').substringBefore('/')
-            host == "youtube.com" || host.endsWith(".youtube.com") -> source.rawQuery.orEmpty().split('&')
-                .firstOrNull { it.startsWith("v=") }?.substringAfter('=')
-            else -> null
-        }?.takeIf { it.matches(Regex("[A-Za-z0-9_-]{6,20}")) } ?: return@withContext null
+        val sourceUrl = track.sourceVideoUrl.ifBlank {
+            track.downloadId?.let { id -> DownloadStore.items.value.firstOrNull { it.id == id }?.sourceVideoUrl(track.uri) }.orEmpty()
+        }
+        val videoId = YouTubeInnertubeLyrics.videoId(sourceUrl) ?: return@withContext null
         val (status, body) = request("https://api-lyrics.simpmusic.org/v1/$videoId", emptyMap())
         if (status != HttpURLConnection.HTTP_OK || body.length > MAX_PROVIDER_BODY) return@withContext null
         val root = runCatching { JSONObject(body) }.getOrNull() ?: return@withContext null
@@ -394,6 +401,23 @@ internal object LyricsRepository {
         if (best.first.title.isNotBlank() && tokens(best.first.title).isNotEmpty() && best.second < .25) return@withContext null
         if (best.first.title.isNotBlank() && candidates.getOrNull(1)?.let { best.second - it.second < .04 } == true) return@withContext null
         best.first.lyrics
+    }
+
+    /** Make native-script titles searchable in catalogs that index Latin spellings. */
+    private fun transliterateForSearch(value: String): String {
+        if (value.isBlank() || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return Tanglish.convert(value)
+        val scripts = listOf(
+            0x0B80..0x0BFF to "Tamil-Latin", 0x0C00..0x0C7F to "Telugu-Latin",
+            0x0C80..0x0CFF to "Kannada-Latin", 0x0D00..0x0D7F to "Malayalam-Latin",
+            0x0980..0x09FF to "Bengali-Latin", 0x0A80..0x0AFF to "Gujarati-Latin",
+            0x0A00..0x0A7F to "Gurmukhi-Latin", 0x0900..0x097F to "Devanagari-Latin",
+            0x0B00..0x0B7F to "Oriya-Latin"
+        )
+        var result = value
+        for ((range, id) in scripts) if (result.any { it.code in range }) {
+            result = runCatching { Transliterator.getInstance("$id; Latin-ASCII").transliterate(result) }.getOrDefault(result)
+        }
+        return result
     }
 
     private fun decodeRichSync(raw: String): String? = runCatching {
