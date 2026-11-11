@@ -31,7 +31,9 @@ internal object MusicPersistence {
             skipForward = state.settings.skipForward.coerceIn(5, 60), skipBackward = state.settings.skipBackward.coerceIn(5, 60),
             libraryLayout = state.settings.libraryLayout.takeIf { it in listOf("Grid", "Compact") } ?: "Grid",
             songsLayout = state.settings.songsLayout.takeIf { it in listOf("Grid", "Compact") } ?: "Compact")
-        return state.copy(version = 2, tracks = state.tracks.distinctBy { it.id }, queueIndex = state.queueIndex.coerceIn(0, (state.queue.size - 1).coerceAtLeast(0)),
+        return state.copy(version = 2, tracks = state.tracks.distinctBy { it.id }.map { track ->
+            track.copy(sourceVideoUrl = track.sourceVideoUrl.orEmpty())
+        }, queueIndex = state.queueIndex.coerceIn(0, (state.queue.size - 1).coerceAtLeast(0)),
             position = state.position.coerceAtLeast(0), repeat = state.repeat.coerceIn(0, 2), settings = settings)
     }
     fun mergeLocalEdits(local: MusicState, before: MusicState, after: MusicState): MusicState {

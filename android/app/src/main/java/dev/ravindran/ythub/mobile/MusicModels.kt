@@ -11,7 +11,7 @@ data class LocalTrack(
     val downloadId: String? = null, val added: Long = System.currentTimeMillis(),
     val available: Boolean = true, val lyrics: String = "", val folder: String = "",
     /** Exact YouTube video for source-aware lyrics lookup (especially playlist downloads). */
-    val sourceVideoUrl: String = ""
+    val sourceVideoUrl: String? = ""
 )
 data class LocalPlaylist(val id: String = UUID.randomUUID().toString(), val name: String, val tracks: List<String> = emptyList(), val downloadId: String? = null, val sourceTracks: List<String>? = null)
 data class PlayRecord(val count: Int = 0, val lastPlayed: Long = 0)
@@ -50,7 +50,7 @@ object MusicRules {
             tracks[track.id] = if (previous == null) track else track.copy(
                 added = previous.added,
                 lyrics = previous.lyrics.ifBlank { track.lyrics },
-                sourceVideoUrl = track.sourceVideoUrl.ifBlank { previous.sourceVideoUrl }
+                sourceVideoUrl = track.sourceVideoUrl.orEmpty().ifBlank { previous.sourceVideoUrl.orEmpty() }
             )
         }
         return tracks.values.toList()

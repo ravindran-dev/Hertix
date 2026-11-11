@@ -4,6 +4,8 @@ Hertix 1.0.23
 - Search lyrics catalogs with native-script and Latin transliterations for Tamil and other Indian languages.
 - Prefer time-synchronized lyrics when available and avoid false line highlighting for plain lyrics.
 - Replace saved plain lyrics with synchronized lyrics when a better match is found.
+- Prevent a crash when older saved tracks are opened or rescanned after adding optional lyric source metadata.
+- Keep older library records and backups compatible with the new lyric source field.
 
 Hertix 1.0.22
 

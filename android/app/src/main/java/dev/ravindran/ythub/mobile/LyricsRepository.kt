@@ -47,7 +47,7 @@ internal object LyricsRepository {
         val originalArtist = track.artist.trim()
         require(originalTitle.isNotEmpty()) { "Track title is needed to search for lyrics." }
 
-        val key = listOf(track.sourceVideoUrl, originalTitle, originalArtist, track.album, track.durationMs.toString())
+        val key = listOf(track.sourceVideoUrl.orEmpty(), originalTitle, originalArtist, track.album, track.durationMs.toString())
             .joinToString("\u001f").lowercase(Locale.ROOT)
         if (forceLookup) entries.remove(key)
         else entries[key]?.takeIf { it.expiresAt > System.currentTimeMillis() }?.let { return@withContext it.lyrics }
@@ -74,7 +74,7 @@ internal object LyricsRepository {
 
         // YouTube Music's lyrics tab is keyed by the exact playing
         // video and can return regional lyrics absent from title catalogs.
-        val videoUrl = track.sourceVideoUrl.ifBlank {
+        val videoUrl = track.sourceVideoUrl.orEmpty().ifBlank {
             track.downloadId?.let { id -> DownloadStore.items.value.firstOrNull { it.id == id }?.sourceVideoUrl(track.uri) }.orEmpty()
         }
         val lyricsSourceUrls = mutableListOf<String>()
@@ -360,7 +360,7 @@ internal object LyricsRepository {
             value.split(Regex("[,|·]")).count { it.isNotBlank() } > 2
 
     private suspend fun findSimpMusicLyrics(track: LocalTrack, title: String, artist: String, duration: Long?): String? = withContext(Dispatchers.IO) {
-        val sourceUrl = track.sourceVideoUrl.ifBlank {
+        val sourceUrl = track.sourceVideoUrl.orEmpty().ifBlank {
             track.downloadId?.let { id -> DownloadStore.items.value.firstOrNull { it.id == id }?.sourceVideoUrl(track.uri) }.orEmpty()
         }
         val videoId = YouTubeInnertubeLyrics.videoId(sourceUrl) ?: return@withContext null

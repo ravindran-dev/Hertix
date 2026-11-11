@@ -239,7 +239,7 @@ object MusicRepository {
                     val track = runCatching {
                         if (!forceDownloads && cached != null && exists(uri)) cached.copy(available = true,
                             artwork = cached.artwork.ifBlank { fetchArtwork(cached.id, thumbnail) },
-                            sourceVideoUrl = cached.sourceVideoUrl.ifBlank { sourceUrl })
+                            sourceVideoUrl = cached.sourceVideoUrl.orEmpty().ifBlank { sourceUrl })
                         else metadata(uri, job.id, job.exportedNames.getOrNull(i).orEmpty(), thumbnail, sourceUrl)
                     }.getOrNull() ?: continue
                     ids.add(track.id)
