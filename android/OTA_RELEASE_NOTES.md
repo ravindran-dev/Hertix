@@ -1,5 +1,9 @@
 Hertix 1.0.23
 
+- Search exact-video, regional catalog and transliterated title sources together, keeping responsive results and prioritizing synchronized lyrics.
+- Add additional regional timed lyric catalogs and timed video-caption fallback when a catalog has no match.
+- Refresh the music client version from its service page so exact-video lyric requests remain compatible as that service changes.
+- Cancel an old track’s lyric lookup cleanly when playback changes, so results cannot overwrite the current lyric state.
 - Keep each playlist track linked to its exact video so source-based lyrics lookup works for individual songs.
 - Search lyrics catalogs with native-script and Latin transliterations for Tamil and other Indian languages.
 - Prefer time-synchronized lyrics when available and avoid false line highlighting for plain lyrics.

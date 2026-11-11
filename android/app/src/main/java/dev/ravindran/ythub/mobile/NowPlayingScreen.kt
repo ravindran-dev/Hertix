@@ -319,17 +319,25 @@ private val Accent = MobileUi.accent
             lookupState = "available"
             return@LaunchedEffect
         }
+        val requestedTrackId = track.id
         lookupState = if (lyrics.isBlank()) "loading" else "available"
         lookupError = ""
-        runCatching { LyricsRepository.find(track, forceLookup = lookupAttempt > 0) }
-            .onSuccess { found ->
-                if (found.isNullOrBlank()) lookupState = if (lyrics.isBlank()) "missing" else "available"
-                else {
-                    MusicRepository.saveLyrics(track.id, found)
-                    lookupState = "available"
-                }
+        try {
+            val found = LyricsRepository.find(track, forceLookup = lookupAttempt > 0)
+            if (track.id != requestedTrackId) return@LaunchedEffect
+            if (found.isNullOrBlank()) lookupState = if (lyrics.isBlank()) "missing" else "available"
+            else {
+                MusicRepository.saveLyrics(requestedTrackId, found)
+                lookupState = "available"
             }
-            .onFailure { if (lyrics.isBlank()) { lookupError = it.message ?: "Could not look up lyrics."; lookupState = "error" } }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            if (track.id == requestedTrackId && lyrics.isBlank()) {
+                lookupError = failure.message ?: "Could not look up lyrics."
+                lookupState = "error"
+            }
+        }
     }
     LaunchedEffect(active, auto, hasSyncedTiming) { if (hasSyncedTiming && auto && active >= 0 && !list.isScrollInProgress) list.animateScrollToItem(active) }
 

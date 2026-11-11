@@ -9,6 +9,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.util.Base64
 import java.util.Locale
+import java.util.concurrent.TimeUnit
 
 /**
  * Exact-video YouTube Music lyrics and transcript lookups through Innertube.
@@ -16,8 +17,10 @@ import java.util.Locale
  * languages not covered by title-indexed catalogs.
  */
 internal object YouTubeInnertubeLyrics {
-    private const val VERSION = "1.20250101.01.00"
+    private const val FALLBACK_VERSION = "1.20260707.12.00"
     private val idPattern = Regex("[A-Za-z0-9_-]{11}")
+    @Volatile private var cachedClientVersion: String = FALLBACK_VERSION
+    @Volatile private var clientVersionCachedAt: Long = 0L
 
     suspend fun lyrics(videoUrl: String): String? = withContext(Dispatchers.IO) {
         val videoId = videoId(videoUrl) ?: return@withContext null
@@ -88,11 +91,12 @@ internal object YouTubeInnertubeLyrics {
 
     private fun post(endpoint: String, payload: JSONObject): JSONObject {
         val locale = Locale.getDefault()
+        val version = currentClientVersion()
         val requestBody = JSONObject()
             .put("context", JSONObject()
                 .put("client", JSONObject()
                     .put("clientName", "WEB_REMIX")
-                    .put("clientVersion", VERSION)
+                    .put("clientVersion", version)
                     .put("hl", locale.language.ifBlank { "en" })
                     .put("gl", locale.country.ifBlank { "IN" }))
                 .put("user", JSONObject().put("lockedSafetyMode", false))
@@ -113,7 +117,7 @@ internal object YouTubeInnertubeLyrics {
             setRequestProperty("X-Origin", "https://music.youtube.com")
             setRequestProperty("Referer", "https://music.youtube.com/")
             setRequestProperty("X-YouTube-Client-Name", "67")
-            setRequestProperty("X-YouTube-Client-Version", VERSION)
+            setRequestProperty("X-YouTube-Client-Version", version)
             setRequestProperty("Accept-Language", locale.toLanguageTag())
             setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36")
         }
@@ -126,6 +130,39 @@ internal object YouTubeInnertubeLyrics {
             return JSONObject(body)
         } finally {
             connection.disconnect()
+        }
+    }
+
+    private fun currentClientVersion(): String {
+        val now = System.currentTimeMillis()
+        if (now - clientVersionCachedAt < TimeUnit.HOURS.toMillis(12)) return cachedClientVersion
+        synchronized(this) {
+            val checkedAt = System.currentTimeMillis()
+            if (checkedAt - clientVersionCachedAt < TimeUnit.HOURS.toMillis(12)) return cachedClientVersion
+            val connection: HttpURLConnection? = runCatching { (URL("https://music.youtube.com/").openConnection() as HttpURLConnection).apply {
+                requestMethod = "GET"
+                connectTimeout = 2_500
+                readTimeout = 3_000
+                instanceFollowRedirects = true
+                setRequestProperty("User-Agent", "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 Chrome/131.0.0.0 Mobile Safari/537.36")
+                setRequestProperty("Accept-Language", Locale.getDefault().toLanguageTag())
+            } }.getOrNull()
+            val discovered = try {
+                val conn = connection ?: return cachedClientVersion.also { clientVersionCachedAt = checkedAt }
+                if (conn.responseCode !in 200..299) null
+                else conn.inputStream.bufferedReader().use { reader ->
+                    val html = reader.readText().take(2 * 1024 * 1024)
+                    Regex("""\"INNERTUBE_CLIENT_VERSION\"\s*:\s*\"([^\"]+)\"""")
+                        .find(html)?.groupValues?.getOrNull(1)
+                }
+            } catch (_: Exception) {
+                null
+            } finally {
+                connection?.disconnect()
+            }
+            discovered?.takeIf { it.matches(Regex("\\d+\\.\\d{8}\\.\\d{2}\\.\\d{2}")) }?.let { cachedClientVersion = it }
+            clientVersionCachedAt = checkedAt
+            return cachedClientVersion
         }
     }
 

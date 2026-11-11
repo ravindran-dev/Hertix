@@ -3,6 +3,10 @@ package dev.ravindran.ythub.mobile
 import android.icu.text.Transliterator
 import android.os.Build
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -42,6 +46,8 @@ internal object LyricsRepository {
         "remaster", "remastered", "version", "topic", "youtube", "vevo", "full"
     )
 
+    private data class ProviderAnswer(val lyrics: String?, val failure: Throwable? = null)
+
     suspend fun find(track: LocalTrack, forceLookup: Boolean = false): String? = withContext(Dispatchers.IO) {
         val originalTitle = track.title.trim()
         val originalArtist = track.artist.trim()
@@ -57,123 +63,102 @@ internal object LyricsRepository {
         // Avoid rejecting a catalog match against a publisher/channel name.
         val artist = cleanArtist(originalArtist).takeUnless(::looksLikePublisher).orEmpty()
         val duration = track.durationMs.takeIf { it in 1_000L..3_600_000L }?.let { (it + 500L) / 1_000L }
-        var providerFailure: Exception? = null
-        var plainFallback: String? = null
-        fun timedLyrics(candidate: String?): String? {
-            if (candidate.isNullOrBlank()) return null
-            if (hasSyncedTiming(candidate)) return candidate
-            if (plainFallback == null) plainFallback = candidate
-            return null
-        }
-
-        // For YouTube downloads, first ask the video-ID catalog. It can identify
-        // regional-language recordings even when file tags contain only the channel.
-        val videoLyrics = runCatching { findSimpMusicLyrics(track, title, artist, duration) }
-            .onFailure { providerFailure = it as? Exception }.getOrNull()
-        timedLyrics(videoLyrics)?.let { return@withContext cache(key, it) }
-
-        // YouTube Music's lyrics tab is keyed by the exact playing
-        // video and can return regional lyrics absent from title catalogs.
         val videoUrl = track.sourceVideoUrl.orEmpty().ifBlank {
             track.downloadId?.let { id -> DownloadStore.items.value.firstOrNull { it.id == id }?.sourceVideoUrl(track.uri) }.orEmpty()
         }
-        val lyricsSourceUrls = mutableListOf<String>()
-        if (videoUrl.isNotBlank()) lyricsSourceUrls += videoUrl
-        if (videoUrl.isNotBlank()) {
-            val youtubeMusic = runCatching { YouTubeInnertubeLyrics.lyrics(videoUrl) }
-                .onFailure { providerFailure = it as? Exception }.getOrNull()
-            timedLyrics(youtubeMusic)?.let { return@withContext cache(key, it) }
-        }
+        val latinTitle = transliterateForSearch(title).trim().takeIf { it.isNotBlank() && it != title }
+        val latinArtist = transliterateForSearch(artist).trim().takeIf { it.isNotBlank() && it != artist }
 
-        // Imported and rescanned local files can lose the download-to-video link.
-        // Search YouTube Music as a fallback, then require a close title, artist,
-        // and duration match before trusting that video's lyric tab.
-        val searchedSources = runCatching { findYouTubeMusicSources(title, artist, duration) }
-            .onFailure { providerFailure = it as? Exception }.getOrNull()
-        for (source in searchedSources.orEmpty()) {
-            if (source.url !in lyricsSourceUrls) lyricsSourceUrls += source.url
-            val youtubeMusic = runCatching { YouTubeInnertubeLyrics.lyrics(source.url) }
-                .onFailure { providerFailure = it as? Exception }.getOrNull()
-            timedLyrics(youtubeMusic)?.let { return@withContext cache(key, it) }
-        }
+        // Start independent exact-video and catalog providers together. Results are
+        // still considered in a stable order, preferring timed lyrics over plain text.
+        coroutineScope {
+            suspend fun provider(block: suspend () -> String?): ProviderAnswer = try {
+                ProviderAnswer(block())
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Throwable) {
+                ProviderAnswer(null, failure)
+            }
 
-        // KuGou's public lyric catalogue has broader non-English coverage than
-        // LRCLIB and returns line-synced LRC without requiring an API key.
-        val kugou = runCatching { findKuGouLyrics(title, artist, duration, track.album) }
-            .onFailure { providerFailure = it as? Exception }.getOrNull()
-        timedLyrics(kugou)?.let { return@withContext cache(key, it) }
+            val exactVideo = videoUrl.takeIf(String::isNotBlank)
+            val jobs = mutableListOf<Pair<String, Deferred<ProviderAnswer>>>()
+            fun launch(name: String, block: suspend () -> String?) {
+                jobs += name to async(Dispatchers.IO) { provider(block) }
+            }
 
-        // /get gives the most precise match, but LRCLIB deliberately requires duration
-        // to be within about two seconds. Search below recovers from container/intro offsets.
-        val exactParams = linkedMapOf("track_name" to originalTitle)
-        artist.takeIf(::knownArtist)?.let { exactParams["artist_name"] = it }
-        track.album.takeIf { it.isNotBlank() && !it.equals("Unknown album", true) }?.let { exactParams["album_name"] = it }
-        duration?.let { exactParams["duration"] = it.toString() }
-        val exact = if (knownArtist(artist)) runCatching { getRecord("$baseUrl/get", exactParams) }
-            .onFailure { providerFailure = it as? Exception }
-            .getOrDefault(LookupResult.Missing) else LookupResult.Missing
-        if (exact is LookupResult.Found) timedLyrics(exact.record.lyrics)?.let { return@withContext cache(key, it) }
+            if (exactVideo != null) {
+                launch("video catalog") { findSimpMusicLyrics(track, title, artist, duration) }
+                launch("YouTube Music") { YouTubeInnertubeLyrics.lyrics(exactVideo) }
+            }
+            launch("YouTube Music search") { findYouTubeMusicLyrics(title, artist, duration) }
+            launch("BiniLyrics") {
+                findBiniLyrics(title, artist, duration, track.album)
+                    ?: latinTitle?.let { findBiniLyrics(it, latinArtist ?: artist, duration, track.album) }
+            }
+            launch("BetterLyrics") {
+                findBetterLyrics(title, artist, duration, track.album)
+                    ?: latinTitle?.let { findBetterLyrics(it, latinArtist ?: artist, duration, track.album) }
+            }
+            launch("QQ lyrics") {
+                findPortatoLyrics(title, artist, duration, track.album)
+                    ?: latinTitle?.let { findPortatoLyrics(it, latinArtist ?: artist, duration, track.album) }
+            }
+            launch("LyricsPlus") {
+                findLyricsPlus(title, artist, duration, track.album)
+                    ?: latinTitle?.let { findLyricsPlus(it, latinArtist ?: artist, duration, track.album) }
+            }
+            launch("Unison") {
+                findUnisonLyrics(title, artist, duration, track.album)
+                    ?: latinTitle?.let { findUnisonLyrics(it, latinArtist ?: artist, duration, track.album) }
+            }
+            launch("KuGou") {
+                findKuGouLyrics(title, artist, duration, track.album)
+                    ?: latinTitle?.let { findKuGouLyrics(it, latinArtist ?: artist, duration, track.album) }
+            }
+            launch("LRCLIB") { findLrcLibLyrics(originalTitle, title, artist, duration, track.album) }
+            if (exactVideo != null) launch("YouTube captions") { YouTubeInnertubeLyrics.transcript(exactVideo) }
 
-        // LRCLIB search does not accept duration; rank results locally so a broad query
-        // cannot silently attach another song with a similar title.
-        delay(300)
-        val searchParams = linkedMapOf("track_name" to title)
-        artist.takeIf(::knownArtist)?.let { searchParams["artist_name"] = it }
-        val records = runCatching { searchRecords(searchParams) }
-            .onFailure { providerFailure = it as? Exception }
-            .getOrDefault(emptyList())
-        val best = selectBest(records, title, artist, duration)
-        if (best != null) timedLyrics(best.lyrics)?.let { return@withContext cache(key, it) }
-
-        // Imported/downloaded tracks can carry a label or channel as the artist. A
-        // title-only retry is accepted only for an almost exact title and near-exact
-        // duration, which is safer than trusting a mismatched artist tag.
-        if (knownArtist(artist) && duration != null) {
-            delay(300)
-            val titleOnly = runCatching { searchRecords(linkedMapOf("track_name" to title)) }
-                .onFailure { providerFailure = it as? Exception }
-                .getOrDefault(emptyList())
-            val durationMatch = selectBest(titleOnly, title, "", duration)
-            if (durationMatch != null) timedLyrics(durationMatch.lyrics)?.let { return@withContext cache(key, it) }
-        }
-
-        // Some catalog entries use the metadata provider's alternate title. Retry with a
-        // cleaned signature, and only accept a close title/artist/duration match.
-        if (title != originalTitle && knownArtist(artist)) {
-            delay(300)
-            val alternate = runCatching { getRecord("$baseUrl/get", linkedMapOf(
-                "track_name" to title,
-                "artist_name" to artist
-            )) }.onFailure { providerFailure = it as? Exception }.getOrDefault(LookupResult.Missing)
-            if (alternate is LookupResult.Found && selectBest(listOf(alternate.record), title, artist, duration) != null) {
-                timedLyrics(alternate.record.lyrics)?.let { return@withContext cache(key, it) }
+            var plainFallback: String? = null
+            var providerFailure: Throwable? = null
+            try {
+                for ((_, job) in jobs) {
+                    val answer = job.await()
+                    if (answer.failure != null) providerFailure = answer.failure
+                    val candidate = answer.lyrics?.takeIf(String::isNotBlank) ?: continue
+                    if (hasSyncedTiming(candidate)) return@coroutineScope cache(key, candidate)
+                    if (plainFallback == null) plainFallback = candidate
+                }
+                plainFallback?.let { return@coroutineScope cache(key, it) }
+                providerFailure?.let { throw IllegalStateException("Lyrics providers could not be reached. Try again later.", it) }
+                cache(key, null)
+            } finally {
+                jobs.forEach { it.second.cancel() }
             }
         }
+    }
 
-        // The source-oriented provider chain uses the local
-        // lyrics database first, then independently hosted Apple Music TTML sources.
-        // BiniLyrics is particularly useful for non-English catalogs, including Tamil.
-        val bini = runCatching { findBiniLyrics(title, artist, duration, track.album) }
-            .onFailure { providerFailure = it as? Exception }.getOrNull()
-        timedLyrics(bini)?.let { return@withContext cache(key, it) }
-
-        val better = runCatching { findBetterLyrics(title, artist, duration, track.album) }
-            .onFailure { providerFailure = it as? Exception }.getOrNull()
-        timedLyrics(better)?.let { return@withContext cache(key, it) }
-
-        // Captions are a final exact-video fallback. They remain
-        // lower priority than lyrics catalogs to avoid replacing authored lyrics.
-        for (lyricsSourceUrl in lyricsSourceUrls.take(4)) {
-            val transcript = runCatching { YouTubeInnertubeLyrics.transcript(lyricsSourceUrl) }
-                .onFailure { providerFailure = it as? Exception }.getOrNull()
-            timedLyrics(transcript)?.let { return@withContext cache(key, it) }
+    private suspend fun findLrcLibLyrics(originalTitle: String, title: String, artist: String, duration: Long?, album: String): String? {
+        val exactParams = linkedMapOf("track_name" to originalTitle)
+        artist.takeIf(::knownArtist)?.let { exactParams["artist_name"] = it }
+        album.takeIf { it.isNotBlank() && !it.equals("Unknown album", true) }?.let { exactParams["album_name"] = it }
+        duration?.let { exactParams["duration"] = it.toString() }
+        if (knownArtist(artist)) {
+            val exact = getRecord("$baseUrl/get", exactParams)
+            if (exact is LookupResult.Found) exact.record.lyrics?.let { return it }
         }
-
-        plainFallback?.let { return@withContext cache(key, it) }
-
-        providerFailure?.let { throw IllegalStateException("Lyrics providers could not be reached. Try again later.", it) }
-
-        cache(key, null)
+        val searchParams = linkedMapOf("track_name" to title)
+        artist.takeIf(::knownArtist)?.let { searchParams["artist_name"] = it }
+        val best = selectBest(searchRecords(searchParams), title, artist, duration)
+        best?.lyrics?.let { return it }
+        if (knownArtist(artist) && duration != null) {
+            val titleOnly = searchRecords(linkedMapOf("track_name" to title))
+            selectBest(titleOnly, title, "", duration)?.lyrics?.let { return it }
+        }
+        if (title != originalTitle && knownArtist(artist)) {
+            val alternate = getRecord("$baseUrl/get", linkedMapOf("track_name" to title, "artist_name" to artist))
+            if (alternate is LookupResult.Found && selectBest(listOf(alternate.record), title, artist, duration) != null) return alternate.record.lyrics
+        }
+        return null
     }
 
     private suspend fun findYouTubeMusicSources(title: String, artist: String, duration: Long?): List<YouTubeResult> {
@@ -221,6 +206,29 @@ internal object LyricsRepository {
             listOf(cleanTitle, latinTitle).filter(String::isNotBlank).distinct().forEach { collect(it) }
         }
         return candidates.values.sortedByDescending { it.second }.take(3).map { it.first }
+    }
+
+    private suspend fun findYouTubeMusicLyrics(title: String, artist: String, duration: Long?): String? = coroutineScope {
+        val sources = findYouTubeMusicSources(title, artist, duration)
+        val pending = sources.map { source -> source to async(Dispatchers.IO) { YouTubeInnertubeLyrics.lyrics(source.url) } }
+        var plain: String? = null
+        try {
+            for ((_, lyrics) in pending) {
+                val value = lyrics.await()?.takeIf(String::isNotBlank) ?: continue
+                if (hasSyncedTiming(value)) return@coroutineScope value
+                if (plain == null) plain = value
+            }
+            if (plain != null) return@coroutineScope plain
+            val captions = sources.map { source -> source to async(Dispatchers.IO) { YouTubeInnertubeLyrics.transcript(source.url) } }
+            try {
+                for ((_, transcript) in captions) transcript.await()?.takeIf { hasSyncedTiming(it) }?.let { return@coroutineScope it }
+            } finally {
+                captions.forEach { it.second.cancel() }
+            }
+            null
+        } finally {
+            pending.forEach { it.second.cancel() }
+        }
     }
 
     private sealed interface LookupResult {
@@ -532,13 +540,99 @@ internal object LyricsRepository {
             "d" to duration.toString()
         )
         if (duration == null) return@withContext null
-        val (status, body) = request("https://api.betterlyrics.org/getLyrics", params)
+        val endpoints = listOf("https://lyrics-api.boidu.dev/getLyrics", "https://api.betterlyrics.org/getLyrics")
+        val response = endpoints.asSequence().map { endpoint -> runCatching { request(endpoint, params) }.getOrNull() }
+            .firstOrNull { it?.first == HttpURLConnection.HTTP_OK } ?: return@withContext null
+        val (status, body) = response
         if (status != HttpURLConnection.HTTP_OK || body.length > MAX_PROVIDER_BODY) return@withContext null
         val content = providerContent(body)?.decodeProviderEntities()?.trim()?.takeIf(String::isNotBlank) ?: return@withContext null
         when {
             content.contains("<tt", ignoreCase = true) -> ttmlToLrc(content)
             parseLyrics(content).isNotEmpty() -> content
             content.contains(Regex("(?i)lyrics? (not found|unavailable)|^error")) -> null
+            else -> content
+        }
+    }
+
+    private suspend fun findPortatoLyrics(title: String, artist: String, duration: Long?, album: String): String? = withContext(Dispatchers.IO) {
+        if (!knownArtist(artist) || duration == null) return@withContext null
+        val params = linkedMapOf("s" to title, "a" to artist, "d" to duration.toString())
+        album.takeIf { it.isNotBlank() && !it.equals("Unknown album", true) }?.let { params["al"] = it }
+        val (status, body) = request("https://lyrics-api.boidu.dev/qq/getLyrics", params)
+        if (status != HttpURLConnection.HTTP_OK || body.length > MAX_PROVIDER_BODY) return@withContext null
+        providerContent(body)?.decodeProviderEntities()?.let { content ->
+            when {
+                content.contains("<tt", true) -> ttmlToLrc(content)
+                parseLyrics(content).isNotEmpty() -> content
+                content.contains(Regex("(?i)lyrics? (not found|unavailable)|^error")) -> null
+                else -> content.takeIf(String::isNotBlank)
+            }
+        }
+    }
+
+    private suspend fun findLyricsPlus(title: String, artist: String, duration: Long?, album: String): String? = coroutineScope {
+        val seconds = duration ?: 0L
+        val query = buildString {
+            append("title=").append(URLEncoder.encode(title, Charsets.UTF_8.name()))
+            append("&artist=").append(URLEncoder.encode(artist, Charsets.UTF_8.name()))
+            if (seconds > 0) append("&duration=").append(seconds)
+            if (album.isNotBlank() && !album.equals("Unknown album", true)) append("&album=").append(URLEncoder.encode(album, Charsets.UTF_8.name()))
+        }
+        val mirrors = listOf(
+            "https://lyricsplus.prjktla.my.id", "https://lyricsplus.atomix.one",
+            "https://lyricsplus.binimum.org", "https://lyricsplus.prjktla.workers.dev",
+            "https://lyricsplus-seven.vercel.app", "https://lyrics-plus-backend.vercel.app"
+        )
+        val pending = mirrors.map { host -> async(Dispatchers.IO) {
+            runCatching { request("$host/v2/lyrics/get?$query", emptyMap()) }.getOrNull()
+                ?.takeIf { it.first in 200..299 && it.second.length <= MAX_PROVIDER_BODY }
+                ?.let { parseLyricsPlus(it.second) }
+        } }
+        try {
+            for (job in pending) job.await()?.takeIf(String::isNotBlank)?.let { return@coroutineScope it }
+            null
+        } finally {
+            pending.forEach { it.cancel() }
+        }
+    }
+
+    private fun parseLyricsPlus(body: String): String? = runCatching {
+        val root = JSONObject(body)
+        val lines = root.optJSONArray("lyrics") ?: root.optJSONObject("data")?.optJSONArray("lyrics") ?: return null
+        val output = mutableListOf<Pair<Long, String>>()
+        for (index in 0 until lines.length()) {
+            val item = lines.optJSONObject(index) ?: continue
+            val start = item.optLong("time", -1L).takeIf { it >= 0 } ?: continue
+            val syllables = item.optJSONArray("syllabus")
+            val text = item.optString("text").takeIf { it.isNotBlank() && it != "null" }
+                ?: syllables?.let { array -> (0 until array.length()).mapNotNull { array.optJSONObject(it)?.optString("text")?.takeIf(String::isNotBlank) }.joinToString("") }
+                ?: ""
+            if (text.isNotBlank()) output += start to text.trim()
+        }
+        output.sortedBy { it.first }.joinToString("\n") { (ms, text) ->
+            val cs = (ms % 1_000L) / 10L
+            "[${ms / 60_000L}:${((ms / 1_000L) % 60L).toString().padStart(2, '0')}.${cs.toString().padStart(2, '0')}]$text"
+        }.takeIf { parseLyrics(it).isNotEmpty() }
+    }.getOrNull()
+
+    private suspend fun findUnisonLyrics(title: String, artist: String, duration: Long?, album: String): String? = withContext(Dispatchers.IO) {
+        val params = linkedMapOf("song" to title)
+        artist.takeIf(::knownArtist)?.let { params["artist"] = it }
+        duration?.let { params["duration"] = it.toString() }
+        album.takeIf { it.isNotBlank() && !it.equals("Unknown album", true) }?.let { params["album"] = it }
+        val (status, body) = request("https://unison.boidu.dev/lyrics", params)
+        if (status != HttpURLConnection.HTTP_OK || body.length > MAX_PROVIDER_BODY) return@withContext null
+        val data = runCatching { JSONObject(body).optJSONObject("data") }.getOrNull() ?: return@withContext null
+        if (data.optString("lyrics").isBlank()) return@withContext null
+        val candidateTitle = data.optString("song")
+        val candidateArtist = data.optString("artist")
+        if (candidateTitle.isNotBlank() && tokenScore(tokens(title), tokens(candidateTitle)) < .68) return@withContext null
+        if (knownArtist(artist) && candidateArtist.isNotBlank() && tokenScore(tokens(artist), tokens(candidateArtist)) < .3) return@withContext null
+        val content = data.optString("lyrics").decodeProviderEntities()
+        when {
+            data.optString("format").equals("ttml", true) || content.contains("<tt", true) -> ttmlToLrc(content)
+            parseLyrics(content).isNotEmpty() -> content
+            data.optString("syncType").equals("plain", true) -> content
             else -> content
         }
     }
